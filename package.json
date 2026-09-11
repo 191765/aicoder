@@ -1,9 +1,12 @@
 {
-  "name": "aicoder",
+  "name": "@191765/aicoder",
   "version": "0.1.0",
   "description": "开源 AI 编程助手：终端 (CLI) 与网页 (Web) 双形态，支持任意 OpenAI 兼容 LLM",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "aicoder": "dist/cli.js"
   },
@@ -38,7 +41,6 @@
   ],
   "dependencies": {
     "dotenv": "^16.4.5",
-    "ignore": "^5.3.1",
     "openai": "^4.67.3"
   },
   "devDependencies": {

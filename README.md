@@ -47,9 +47,9 @@ npm run dev:web
 ### 通过 npx 直接运行（发布到 npm 后）
 
 ```bash
-npx aicoder               # 终端对话
-npx aicoder web           # 网页版
-npx aicoder --help        # 查看帮助
+npx @191765/aicoder               # 终端对话
+npx @191765/aicoder web           # 网页版
+npx @191765/aicoder --help        # 查看帮助
 ```
 
 ## 配置
@@ -114,7 +114,7 @@ http://localhost:8787/?token=你的令牌
 ## 作为库使用
 
 ```ts
-import { loadConfig, Agent } from "aicoder";
+import { loadConfig, Agent } from "@191765/aicoder";
 
 const agent = new Agent({ config: loadConfig(), useRag: true });
 await agent.prepareRag();
@@ -139,7 +139,7 @@ npm login
 npm publish --access public
 ```
 
-发布后即可 `npx aicoder`。`prepublishOnly` 会自动清理并重新构建。
+发布后即可 `npx @191765/aicoder`。`prepublishOnly` 会自动清理并重新构建。
 
 ## 安全说明
 
