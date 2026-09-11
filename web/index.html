@@ -27,9 +27,14 @@
           <span>允许写操作（改文件/执行命令）</span>
         </label>
       </div>
+
+      <div class="section-title">历史会话</div>
+      <div id="sessionList" class="session-list"></div>
+
       <div class="status" id="status">就绪</div>
       <div class="side-footer">
         <div id="modelInfo">模型：-</div>
+        <div id="usage" class="usage"></div>
         <div id="tokenBox" style="display:none">
           <input id="tokenInput" type="password" placeholder="访问令牌 (可选)" />
           <button id="saveToken" class="btn small">保存</button>
@@ -43,7 +48,7 @@
         <textarea id="input" rows="1" placeholder="描述你的需求，例如：帮我修复这个 bug / 解释这段代码 / 写一个测试"></textarea>
         <button type="submit" id="send">发送</button>
       </form>
-      <div class="hint">Enter 发送 · Shift+Enter 换行 · 写操作会自动执行，请谨慎</div>
+      <div class="hint">Enter 发送 · Shift+Enter 换行 · 写操作默认拦截，需勾选「允许写操作」</div>
     </main>
   </div>
   <script src="/app.js"></script>

@@ -111,6 +111,17 @@ async function main(): Promise<void> {
       }
     }
   }
+  if (ext.plugins.length) {
+    for (const p of ext.plugins) {
+      if (p.error) {
+        console.log(`${C.yellow}插件 ${p.name}: 加载失败 ${p.error}${C.reset}`);
+      } else {
+        console.log(
+          `${C.dim}插件 ${p.name}: ${p.tools.length} 工具, ${p.commands.length} 命令${C.reset}`
+        );
+      }
+    }
+  }
 
   const { newSessionId, loadSession, listSessions, deleteSession } = await import("./session.js");
 
@@ -180,7 +191,7 @@ async function main(): Promise<void> {
   if (wantTui) {
     const { runTui } = await import("./tui.js");
     const handleCommand = async (text: string): Promise<void> => {
-      const [cmd, ...rest] = text.split(" ");
+        const [cmd = "", ...rest] = text.split(" ");
       if (cmd === "/rag") {
         const n = await agent.prepareRag();
         console.log(`${C.dim}索引完成：${n} 个片段${C.reset}`);
@@ -196,6 +207,16 @@ async function main(): Promise<void> {
         const id = newSessionId();
         agent.id = id;
         console.log(`已新建会话 ${id}`);
+      } else {
+        const { findPluginCommand } = await import("./plugins.js");
+        const found = findPluginCommand(cmd);
+        if (found) {
+          await found.command.run({
+            args: rest,
+            workdir: config.workdir,
+            print: (t) => console.log(t),
+          });
+        }
       }
     };
     runTui(agent, {
@@ -261,6 +282,20 @@ async function main(): Promise<void> {
         agent.id = id;
         console.log(`${C.green}已新建会话 ${id}${C.reset}\n`);
         return prompt();
+      }
+      if (text.startsWith("/")) {
+        const { findPluginCommand } = await import("./plugins.js");
+      const [cmd = "", ...rest] = text.split(" ");
+        const found = findPluginCommand(cmd);
+        if (found) {
+          await found.command.run({
+            args: rest,
+            workdir: config.workdir,
+            print: (t) => console.log(t),
+          });
+          console.log();
+          return prompt();
+        }
       }
       await runTurn(agent, text);
       console.log();

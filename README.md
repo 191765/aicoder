@@ -285,6 +285,85 @@ aicoder --tui
 特性：多行编辑（`Ctrl+J` 换行）、输入历史（`↑`/`↓`）、行内编辑（`←`/`→`/`Home`/`End`）、
 流式输出、状态行、主题（`dark` / `light` / `plain`，用 `AICODER_THEME` 或 `ui.theme` 设置）。
 
+## 插件系统
+
+插件是本地 JS/MJS/CJS 文件或 npm 包，默认导出工具与命令。在 `.aicoder.json` 中配置：
+
+```json
+{ "plugins": ["./plugins/my-plugin.mjs", "@scope/aicoder-plugin-x"] }
+```
+
+插件写法：
+
+```js
+export default {
+  name: "demo",
+  tools: [
+    {
+      name: "hello",
+      description: "打招呼",
+      mutating: false,
+      async run(args, ctx) { return "hello " + (args.who ?? "world"); }
+    }
+  ],
+  commands: [
+    { name: "greet", description: "问候", run(ctx) { ctx.print("hi!"); } }
+  ],
+  async setup(config) { /* 可选：初始化 */ }
+};
+```
+
+插件工具注册为 `plugin__<插件名>__<工具名>`，默认按写操作参与权限确认；
+插件命令可在对话中输入 `/命令名` 调用。
+
+## 多代理编排
+
+除了单个 `task` 子代理，还提供编排工具：
+
+- `parallel`：并发运行多个子代理，汇总各自结论。适合可并行的调研/分析。
+- `pipeline`：串行流水线，前一步结论作为后一步输入（用 `{{input}}` 引用）。适合「调研→设计→实现」。
+
+## 安全强化
+
+- **危险命令阻断**：`run_command` 执行前做硬性黑名单检查（`rm -rf /`、`mkfs`、fork 炸弹等），
+  即使权限 `allow` 也会拦截。可在 `.aicoder.json` 的 `security.blockedCommands` 追加自定义正则。
+- **密钥防泄露**：写入文件前扫描 OpenAI/AWS/GitHub/Google 等密钥特征，命中默认拒绝；
+  设置 `security.redactSecrets: true` 改为脱敏。
+- **审计日志**：配置 `security.auditLog` 后，所有写操作与命令执行以 JSONL 记录。
+
+```json
+{
+  "security": {
+    "secretScan": true,
+    "redactSecrets": false,
+    "blockedCommands": ["\\bgit\\s+push\\s+--force"],
+    "auditLog": ".aicoder-audit.log"
+  }
+}
+```
+
+## 用量与调试
+
+启用后可查看 token 用量与费用估算（内置常见模型价格表，可覆盖）：
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "logFile": ".aicoder-trace.log",
+    "pricing": { "my-model": { "input": 0.001, "output": 0.002 } }
+  }
+}
+```
+
+- 网页端左下角显示累计用量，`GET /api/usage` 提供 JSON。
+- trace 以 JSONL 追加写入，`AICODER_TRACE=1` 时同时打印到 stderr。
+
+## Web 界面
+
+网页端支持多会话管理：左侧「历史会话」可查看、切换、删除；对话自动保存并可恢复。
+代码块中的 diff 会高亮显示（`+` 绿 / `-` 红 / `@@` 紫）。
+
 ## CLI 使用
 
 ```bash

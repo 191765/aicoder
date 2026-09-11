@@ -46,8 +46,23 @@ export interface Config {
   lspServers: Record<string, LspServerConfig>;
   /** 多模型路由规则 */
   models: ModelRoute[];
+  /** 插件列表（本地路径或 npm 包名） */
+  plugins: string[];
   /** 向量检索配置 */
   embeddings: { enabled: boolean; model: string; weight: number };
+  /** 可观测性配置 */
+  observability: {
+    enabled: boolean;
+    logFile?: string;
+    pricing?: Record<string, { input: number; output: number }>;
+  };
+  /** 安全配置 */
+  security: {
+    blockedCommands?: string[];
+    secretScan: boolean;
+    redactSecrets: boolean;
+    auditLog?: string;
+  };
   /** UI 配置 */
   ui: { theme?: string; rich?: boolean };
   /** 命中的配置文件路径 */
@@ -125,6 +140,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     mcpServers: file.mcpServers ?? {},
     lspServers: file.lspServers ?? {},
     models: file.models ?? [],
+    plugins: process.env.AICODER_PLUGINS
+      ? process.env.AICODER_PLUGINS.split(/[;,]/).map((s) => s.trim()).filter(Boolean)
+      : (file.plugins ?? []),
     embeddings: {
       enabled:
         process.env.AICODER_EMBEDDINGS !== undefined
@@ -142,6 +160,23 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     ui: {
       theme: process.env.AICODER_THEME ?? file.ui?.theme,
       rich: file.ui?.rich,
+    },
+    observability: {
+      enabled:
+        process.env.AICODER_USAGE !== undefined
+          ? bool(process.env.AICODER_USAGE, true)
+          : (file.observability?.enabled ?? true),
+      logFile: process.env.AICODER_TRACE_FILE ?? file.observability?.logFile,
+      pricing: file.observability?.pricing,
+    },
+    security: {
+      blockedCommands: file.security?.blockedCommands,
+      secretScan:
+        process.env.AICODER_SECRET_SCAN !== undefined
+          ? bool(process.env.AICODER_SECRET_SCAN, true)
+          : (file.security?.secretScan ?? true),
+      redactSecrets: file.security?.redactSecrets ?? false,
+      auditLog: process.env.AICODER_AUDIT_LOG ?? file.security?.auditLog,
     },
     configSources: sources,
     ...overrides,

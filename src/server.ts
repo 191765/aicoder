@@ -92,6 +92,44 @@ async function handle(
     return handleChat(req, res, config, sessions);
   }
 
+  // ---- 会话 API ----
+  if (pathname === "/api/sessions" && req.method === "GET") {
+    if (!checkToken(req, url, config.token)) {
+      return json(res, 401, { error: "未授权" });
+    }
+    const { listSessions } = await import("./session.js");
+    return json(res, 200, { sessions: await listSessions() });
+  }
+
+  if (pathname === "/api/sessions" && req.method === "DELETE") {
+    if (!checkToken(req, url, config.token)) {
+      return json(res, 401, { error: "未授权" });
+    }
+    const id = url.searchParams.get("id") ?? "";
+    const { deleteSession } = await import("./session.js");
+    const ok = id ? await deleteSession(id) : false;
+    return json(res, 200, { ok });
+  }
+
+  if (pathname.startsWith("/api/sessions/") && req.method === "GET") {
+    if (!checkToken(req, url, config.token)) {
+      return json(res, 401, { error: "未授权" });
+    }
+    const id = decodeURIComponent(pathname.slice("/api/sessions/".length));
+    const { loadSession } = await import("./session.js");
+    const s = await loadSession(id);
+    if (!s) return json(res, 404, { error: "会话不存在" });
+    return json(res, 200, { session: s });
+  }
+
+  if (pathname === "/api/usage" && req.method === "GET") {
+    if (!checkToken(req, url, config.token)) {
+      return json(res, 401, { error: "未授权" });
+    }
+    const obs = await import("./observability.js");
+    return json(res, 200, obs.getUsage());
+  }
+
   // 静态文件
   if (req.method === "GET") {
     return serveStatic(pathname, res);
@@ -185,6 +223,8 @@ async function handleChat(
           config: { ...config, autoApprove: allowWrite },
           useRag: Boolean(payload.useRag),
           extraAllow,
+          sessionId,
+          persist: true,
           onConfirm: async (question) => {
             const name = question.match(/工具 (\S+)/)?.[1] ?? "";
             if (extraAllow.has(name)) return true;
@@ -192,6 +232,16 @@ async function handleChat(
             return false;
           },
         });
+        // 恢复已存会话历史（不计入本次流式输出，避免打断当前回复）
+        try {
+          const { loadSession } = await import("./session.js");
+          const stored = await loadSession(sessionId);
+          if (stored?.messages?.length) {
+            agent.loadHistory(stored.messages);
+          }
+        } catch {
+          /* 忽略 */
+        }
         if (payload.useRag) {
           try {
             await agent.prepareRag();

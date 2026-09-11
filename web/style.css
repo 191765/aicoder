@@ -85,6 +85,63 @@ body {
 }
 
 .side-footer { margin-top: auto; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 8px; }
+.usage { font-size: 12px; color: var(--muted); }
+
+.section-title {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.session-item {
+  position: relative;
+  padding: 8px 24px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: 0.12s;
+}
+.session-item:hover { background: var(--panel-2); }
+.session-item.active { border-color: var(--accent); background: var(--panel-2); }
+.session-item .s-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item .s-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.session-item .s-del {
+  position: absolute;
+  right: 4px;
+  top: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  opacity: 0;
+}
+.session-item:hover .s-del { opacity: 1; }
+.session-item .s-del:hover { color: var(--danger); background: #f8514922; }
+
+pre.diff { font-family: var(--mono); font-size: 12px; }
+.d-add { color: #3fb950; }
+.d-del { color: #f85149; }
+.d-hunk { color: #a371f7; }
+.d-meta { color: var(--muted); }
 #tokenBox { display: flex; gap: 6px; }
 #tokenBox input {
   flex: 1;

@@ -27,7 +27,7 @@
     "start": "node dist/cli.js",
     "start:web": "node dist/cli.js web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx test/unit.ts && tsx test/stage3.ts && tsx test/rag-vector.ts && tsx test/agent-stage3.ts && tsx test/tui-smoke.ts",
+    "test": "tsx test/unit.ts && tsx test/stage3.ts && tsx test/rag-vector.ts && tsx test/agent-stage3.ts && tsx test/tui-smoke.ts && tsx test/stage4.ts && tsx test/stage4-e2e.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepublishOnly": "npm run clean && npm run build"
   },

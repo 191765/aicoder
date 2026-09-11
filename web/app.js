@@ -11,6 +11,8 @@ const els = {
   tokenBox: document.getElementById("tokenBox"),
   tokenInput: document.getElementById("tokenInput"),
   saveToken: document.getElementById("saveToken"),
+  sessionList: document.getElementById("sessionList"),
+  usage: document.getElementById("usage"),
 };
 
 let sessionId = localStorage.getItem("aicoder.session") || "";
@@ -29,12 +31,30 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* diff 高亮：+ 绿 / - 红 / @@ 紫 */
+function renderDiff(code) {
+  return code.split("\n").map((line) => {
+    const safe = escapeHtml(line);
+    if (line.startsWith("+") && !line.startsWith("+++")) return `<span class="d-add">${safe}</span>`;
+    if (line.startsWith("-") && !line.startsWith("---")) return `<span class="d-del">${safe}</span>`;
+    if (line.startsWith("@@")) return `<span class="d-hunk">${safe}</span>`;
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index "))
+      return `<span class="d-meta">${safe}</span>`;
+    return safe;
+  }).join("\n");
+}
+
 /* 轻量 Markdown 渲染（代码块/行内代码/粗体/标题/列表/链接） */
 function renderMarkdown(src) {
   const blocks = [];
   let text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
     const i = blocks.length;
-    blocks.push(`<pre><code class="lang-${escapeHtml(lang)}">${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+    const cls = `lang-${escapeHtml(lang)}`;
+    if ((lang || "").toLowerCase() === "diff") {
+      blocks.push(`<pre class="diff">${renderDiff(code.replace(/\n$/, ""))}</pre>`);
+    } else {
+      blocks.push(`<pre><code class="${cls}">${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+    }
     return `\u0000BLOCK${i}\u0000`;
   });
   text = escapeHtml(text);
@@ -207,6 +227,9 @@ function handleEvent(ev, asst, toolMap, getTool, setTool) {
       setStatus(`等待授权: ${ev.name}`);
       addNotice(asst.root, `工具 ${ev.name} 需要授权，请勾选「允许写操作」后重试。`);
       break;
+    case "history":
+      renderHistory(ev.messages || []);
+      break;
     case "error":
       asst.raw += `\n\n> 错误: ${ev.message}`;
       asst.content.innerHTML = renderMarkdown(asst.raw);
@@ -214,8 +237,103 @@ function handleEvent(ev, asst, toolMap, getTool, setTool) {
     case "done":
     case "end":
       setStatus("就绪");
+      refreshSessions();
+      refreshUsage();
       break;
   }
+}
+
+/* ---- 历史渲染 ---- */
+function renderHistory(messages) {
+  els.messages.innerHTML = "";
+  for (const m of messages) {
+    if (m.role === "user") {
+      addUser(m.content || "");
+    } else if (m.role === "assistant" && m.content) {
+      const a = addAssistant();
+      a.raw = m.content;
+      a.content.innerHTML = renderMarkdown(m.content);
+      a.content.classList.remove("cursor");
+    }
+  }
+  scrollDown();
+}
+
+/* ---- 会话列表 ---- */
+async function refreshSessions() {
+  try {
+    const res = await fetch("/api/sessions", { headers: authHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    els.sessionList.innerHTML = "";
+    for (const s of data.sessions || []) {
+      const item = document.createElement("div");
+      item.className = "session-item" + (s.id === sessionId ? " active" : "");
+      const when = new Date(s.updatedAt).toLocaleString();
+      item.innerHTML = `<div class="s-title"></div><div class="s-meta">${s.messageCount} 条 · ${when}</div>`;
+      item.querySelector(".s-title").textContent = s.title || s.id;
+      item.title = s.id;
+      item.addEventListener("click", () => resumeSession(s.id));
+      const del = document.createElement("button");
+      del.className = "s-del";
+      del.textContent = "×";
+      del.title = "删除";
+      del.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await fetch("/api/sessions?id=" + encodeURIComponent(s.id), {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        if (s.id === sessionId) {
+          sessionId = "";
+          localStorage.removeItem("aicoder.session");
+          els.messages.innerHTML = "";
+        }
+        refreshSessions();
+      });
+      item.appendChild(del);
+      els.sessionList.appendChild(item);
+    }
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function resumeSession(id) {
+  if (busy) return;
+  sessionId = id;
+  localStorage.setItem("aicoder.session", id);
+  els.messages.innerHTML = "";
+  try {
+    const res = await fetch("/api/sessions/" + encodeURIComponent(id), {
+      headers: authHeaders(),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      renderHistory(data.session?.messages || []);
+    }
+  } catch {
+    /* 忽略 */
+  }
+  setStatus("已恢复会话");
+  refreshSessions();
+}
+
+/* ---- 用量 ---- */
+async function refreshUsage() {
+  try {
+    const res = await fetch("/api/usage", { headers: authHeaders() });
+    if (!res.ok) return;
+    const u = await res.json();
+    if (!u.calls) { els.usage.textContent = ""; return; }
+    els.usage.textContent = `用量：${u.calls} 次 · ${u.totalTokens} tokens · $${u.costUsd.toFixed(4)}`;
+  } catch {
+    /* 忽略 */
+  }
+}
+
+function authHeaders() {
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 els.composer.addEventListener("submit", (e) => {
@@ -255,6 +373,8 @@ els.saveToken.addEventListener("click", () => {
 fetch("/api/health").then((r) => r.json()).then((d) => {
   els.modelInfo.textContent = `模型：${d.model}`;
   setStatus("就绪");
+  refreshSessions();
+  refreshUsage();
 }).catch(() => {
   setStatus("无法连接服务器");
 });

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Config } from "./config.js";
+import { checkContent, checkCommand, audit } from "./security.js";
 
 export interface ToolContext {
   workdir: string;
@@ -101,9 +102,16 @@ register({
   },
   async run(args, ctx) {
     const p = safeResolve(ctx.workdir, str(args, "path"));
-    const content = typeof args.content === "string" ? args.content : "";
+    let content = typeof args.content === "string" ? args.content : "";
+    const sc = checkContent(content);
+    if (!sc.allowed) {
+      audit({ action: "block_secret_write", tool: "write_file", target: args.path as string, ok: false, detail: sc.reason });
+      throw new Error(sc.reason);
+    }
+    if (sc.redacted !== undefined) content = sc.redacted;
     await fs.mkdir(path.dirname(p), { recursive: true });
     await fs.writeFile(p, content, "utf8");
+    audit({ action: "write_file", tool: "write_file", target: path.relative(ctx.workdir, p), ok: true });
     return `已写入 ${path.relative(ctx.workdir, p)} (${content.length} 字符)`;
   },
 });
@@ -125,12 +133,19 @@ register({
   async run(args, ctx) {
     const p = safeResolve(ctx.workdir, str(args, "path"));
     const oldStr = str(args, "old_string");
-    const newStr = typeof args.new_string === "string" ? args.new_string : "";
+    let newStr = typeof args.new_string === "string" ? args.new_string : "";
+    const sc = checkContent(newStr);
+    if (!sc.allowed) {
+      audit({ action: "block_secret_edit", tool: "edit_file", target: args.path as string, ok: false, detail: sc.reason });
+      throw new Error(sc.reason);
+    }
+    if (sc.redacted !== undefined) newStr = sc.redacted;
     const raw = await fs.readFile(p, "utf8");
     const count = raw.split(oldStr).length - 1;
     if (count === 0) throw new Error("未找到 old_string，无法替换");
     if (count > 1) throw new Error(`old_string 出现 ${count} 次，不唯一`);
     await fs.writeFile(p, raw.replace(oldStr, newStr), "utf8");
+    audit({ action: "edit_file", tool: "edit_file", target: path.relative(ctx.workdir, p), ok: true });
     return `已修改 ${path.relative(ctx.workdir, p)}`;
   },
 });
@@ -236,7 +251,13 @@ register({
   },
   async run(args, ctx) {
     const command = str(args, "command");
+    const sec = checkCommand(command);
+    if (!sec.allowed) {
+      audit({ action: "block_command", tool: "run_command", target: command, ok: false, detail: sec.reason });
+      throw new Error(sec.reason);
+    }
     const timeout = numArg(args, "timeout_ms", 60_000);
+    audit({ action: "run_command", tool: "run_command", target: command, ok: true });
     const { spawn } = await import("node:child_process");
     const isWin = process.platform === "win32";
     const shell = isWin ? "powershell.exe" : "/bin/sh";

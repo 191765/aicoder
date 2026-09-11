@@ -48,12 +48,31 @@ export interface FileConfig {
   lspServers?: Record<string, LspServerConfig>;
   /** 多模型路由规则 */
   models?: ModelRoute[];
+  /** 插件列表（本地路径或 npm 包名） */
+  plugins?: string[];
   /** 向量检索配置 */
   embeddings?: {
     enabled?: boolean;
     model?: string;
     /** 混合检索中向量的权重 0..1，其余给 BM25 */
     weight?: number;
+  };
+  /** 可观测性配置 */
+  observability?: {
+    enabled?: boolean;
+    /** trace 日志文件（相对工作目录或绝对路径） */
+    logFile?: string;
+    /** 自定义价格表：每千 token 美元 */
+    pricing?: Record<string, { input: number; output: number }>;
+  };
+  /** 安全配置 */
+  security?: {
+    /** 额外阻断的命令正则 */
+    blockedCommands?: string[];
+    secretScan?: boolean;
+    redactSecrets?: boolean;
+    /** 审计日志文件 */
+    auditLog?: string;
   };
   /** 默认主题等 UI 配置 */
   ui?: {

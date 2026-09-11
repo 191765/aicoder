@@ -11,6 +11,7 @@ import { buildContext, historyTokens } from "./context.js";
 import { installSubagentTool } from "./subagent.js";
 import { installGitTools } from "./git.js";
 import { installLspTools } from "./lsp.js";
+import { installOrchestratorTools } from "./orchestrator.js";
 import { ModelRouter } from "./router.js";
 
 export type AgentEvent =
@@ -77,6 +78,7 @@ export class Agent {
     installSubagentTool();
     installGitTools();
     installLspTools();
+    installOrchestratorTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);
@@ -171,6 +173,11 @@ export class Agent {
     this.history.push({ role: "user", content: userInput });
 
     const activeProvider = this.providerFor(userInput);
+    const turnStart = Date.now();
+    let turnOutput = "";
+    let turnToolCalls = 0;
+    let turnSteps = 0;
+    const baseLen = this.history.length;
 
     const toolContext: ToolContext = {
       workdir: this.config.workdir,
@@ -186,6 +193,7 @@ export class Agent {
     const system = this.buildSystem(ragContext);
 
     for (let step = 0; step < this.config.maxSteps; step++) {
+      turnSteps = step + 1;
       if (!this.quiet) yield { type: "step", index: step + 1 };
 
       const ctx = buildContext(system, this.history, this.config.budget);
@@ -209,6 +217,7 @@ export class Agent {
       )) {
         if (ev.type === "text") {
           assistantText += ev.delta;
+          turnOutput += ev.delta;
           yield { type: "text", delta: ev.delta };
         } else if (ev.type === "tool_calls") {
           toolCalls = ev.toolCalls;
@@ -223,6 +232,7 @@ export class Agent {
       if (toolCalls.length === 0) {
         this.history.push({ role: "assistant", content: assistantText });
         await this.save();
+        this.recordTurnUsage(activeProvider, turnStart, turnOutput, turnSteps, turnToolCalls, baseLen);
         yield { type: "done" };
         return;
       }
@@ -234,6 +244,7 @@ export class Agent {
       });
 
       for (const call of toolCalls) {
+        turnToolCalls++;
         const name = call.function.name;
         const rawArgs = call.function.arguments || "{}";
         if (!this.quiet) yield { type: "tool_start", name, args: rawArgs };
@@ -338,7 +349,35 @@ export class Agent {
       };
     }
     await this.save();
+    this.recordTurnUsage(activeProvider, turnStart, turnOutput, turnSteps, turnToolCalls, baseLen);
     yield { type: "done" };
+  }
+
+  /** 记录本轮的 token 用量（用于统计与 trace） */
+  private recordTurnUsage(
+    provider: Provider,
+    startMs: number,
+    output: string,
+    steps: number,
+    toolCalls: number,
+    baseLen: number
+  ): void {
+    if (this.quiet) return;
+    try {
+      const model = (provider as { model?: string }).model ?? this.config.model;
+      void import("./observability.js").then((obs) => {
+        obs.recordUsage({
+          model,
+          messages: this.history.slice(baseLen - 1),
+          outputText: output,
+          durationMs: Date.now() - startMs,
+          steps,
+          toolCalls,
+        });
+      });
+    } catch {
+      /* 统计失败不影响主流程 */
+    }
   }
 
   private buildSystem(ragContext: string): string {
