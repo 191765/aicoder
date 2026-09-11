@@ -7,10 +7,12 @@ import { installOrchestratorTools } from "./orchestrator.js";
 import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { installSnapshotTools } from "./snapshots.js";
+import { installFeedbackTool } from "./feedback.js";
 import { installMemoryTool } from "./memory.js";
 import { loadPlugins, type LoadedPlugin } from "./plugins.js";
 import { initObservability, shutdownObservability } from "./observability.js";
 import { initSecurity } from "./security.js";
+import { initSandbox } from "./sandbox.js";
 import { installGithubTools, initGithub } from "./github.js";
 import { setLocale } from "./i18n.js";
 import { initLogger } from "./logger.js";
@@ -34,11 +36,13 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   installSymbolTools();
   installEditEngine();
   installSnapshotTools();
+  installFeedbackTool();
   installMemoryTool();
   initGithub(config);
   setLocale(config.ui?.locale);
   initObservability(config);
   initSecurity(config);
+  initSandbox(config);
 
   let lsp = 0;
   if (config.lspServers && Object.keys(config.lspServers).length) {

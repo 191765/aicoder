@@ -615,6 +615,66 @@ RAG 与符号索引支持单文件增量更新（`updateFile`/`removeFile`）与
 
 见 [`sdk/`](sdk/README.md)：Python、Go、JavaScript 零依赖客户端，调用 `/api/run` 等端点。
 
+## 成本与延迟
+
+- **响应缓存**：对确定性请求（相同 messages+tools+model+温度）复用结果，节省成本。
+  启用 `AICODER_CACHE=true`；可选磁盘持久化（`cache.persistent`）。
+- **模型降级链**：主模型不可用时按 `fallbackModels` 依次切换（未产生输出前才降级）。
+
+```json
+{
+  "cache": { "enabled": true, "ttlMs": 3600000, "persistent": true },
+  "fallbackModels": [{ "model": "gpt-4o-mini" }]
+}
+```
+
+## 执行沙箱
+
+```json
+{
+  "sandbox": { "enabled": true, "noNetwork": false, "maxOutputBytes": 20000 }
+}
+```
+
+启用后，子进程只继承白名单环境变量（自动清除含 `KEY/TOKEN/SECRET` 的变量），
+限制输出大小；Linux 下 `noNetwork: true` 会尝试用 `unshare -n` 断网。
+生产环境仍建议整体运行在容器中（见 Dockerfile）。
+
+## 插件市场
+
+```bash
+aicoder plugin search retrieval   # 搜索
+aicoder plugin install <包名>      # 安装并写入配置
+aicoder plugin list               # 已配置
+aicoder plugin uninstall <包名>    # 卸载
+```
+
+约定插件包含关键字 `aicoder-plugin`。
+
+## 评估基准
+
+```bash
+aicoder eval                 # 运行基准并检测回归
+aicoder eval --baseline      # 保存当前结果为基线
+```
+
+任务可在 `.aicoder/evals/*.json` 自定义（文件断言 / 正则），自动评分并与基线对比。
+
+## 反馈与微调
+
+对话中可用 `submit_feedback` 工具记录赞/踩；导出训练数据：
+
+```bash
+aicoder feedback                       # 统计
+aicoder feedback export sft            # 导出 SFT 数据
+aicoder feedback export dpo            # 导出偏好对
+```
+
+## 多渠道接入
+
+`POST /api/webhook` 支持 Slack / 飞书 / 钉钉 / 通用 JSON，自动识别渠道并回复。
+可用 `AICODER_WEBHOOK_TOKEN` 保护。
+
 ## CLI 使用
 
 ```bash

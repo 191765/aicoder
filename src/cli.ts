@@ -33,6 +33,9 @@ function printHelp(): void {
   aicoder snapshots          列出编辑快照
   aicoder rollback <id>      回滚到指定快照
   aicoder doctor             环境自检（模型/依赖/本地服务）
+  aicoder plugin search [q]  搜索/安装/卸载插件
+  aicoder eval [--baseline]  运行评估基准并检测回归
+  aicoder feedback [export]  查看反馈 / 导出微调数据
   aicoder web                启动网页版 (http://localhost:8787)
   aicoder rag                仅构建代码索引
 
@@ -89,6 +92,21 @@ async function main(): Promise<void> {
 
   if (args[0] === "doctor") {
     await runDoctor();
+    return;
+  }
+
+  if (args[0] === "plugin" || args[0] === "plugins") {
+    await runPlugin(args.slice(1));
+    return;
+  }
+
+  if (args[0] === "eval") {
+    await runEval(args.slice(1));
+    return;
+  }
+
+  if (args[0] === "feedback") {
+    await runFeedback(args.slice(1));
     return;
   }
 
@@ -467,6 +485,155 @@ function confirmPrompt(question: string): Promise<boolean> {
       resolve(/^y(es)?$/i.test(ans.trim()));
     });
   });
+}
+
+/** 反馈与微调数据命令 */
+async function runFeedback(sub: string[]): Promise<void> {
+  const { readFeedback, exportTrainingData } = await import("./feedback.js");
+  const config = loadConfig();
+  const mode = sub[0];
+
+  if (mode === "export") {
+    const format = sub[1] === "dpo" ? "dpo" : "sft";
+    const r = await exportTrainingData(config.workdir, format);
+    console.log(
+      `${C.green}已导出 ${r.count} 条 ${format.toUpperCase()} 数据到 ${r.file}${C.reset}`
+    );
+    return;
+  }
+
+  const entries = await readFeedback(config.workdir);
+  const up = entries.filter((e) => e.rating > 0).length;
+  const down = entries.filter((e) => e.rating < 0).length;
+  const neutral = entries.filter((e) => e.rating === 0).length;
+  console.log(
+    `${C.bold}反馈统计:${C.reset} 共 ${entries.length} 条  ${C.green}赞 ${up}${C.reset}  ${C.red}踩 ${down}${C.reset}  中 ${neutral}`
+  );
+  console.log(`${C.dim}导出微调数据: aicoder feedback export [sft|dpo]${C.reset}`);
+  for (const e of entries.slice(-5)) {
+    const mark = e.rating > 0 ? "👍" : e.rating < 0 ? "👎" : "•";
+    console.log(`  ${mark} ${new Date(e.ts).toLocaleString()}  ${e.comment ?? ""}`);
+  }
+}
+
+/** 评估基准命令 */
+async function runEval(sub: string[]): Promise<void> {
+  const { runEvals, saveBaseline, loadBaseline, compareWithBaseline } = await import("./eval.js");
+  const config = loadConfig();
+  const setBaseline = sub.includes("--baseline") || sub.includes("--save-baseline");
+
+  console.log(`${C.bold}${C.cyan}AICoder 评估基准${C.reset}`);
+  const report = await runEvals(config, (name, i, total) => {
+    process.stdout.write(`\r${C.dim}[${i}/${total}] ${name}...${C.reset}          `);
+  });
+  process.stdout.write("\r\x1b[J");
+
+  for (const r of report.results) {
+    const mark = r.passed ? `${C.green}✓` : `${C.red}✗`;
+    console.log(
+      `${mark}${C.reset} ${r.name}  ${C.dim}score ${r.score.toFixed(2)}  ${r.durationMs}ms${C.reset}`
+    );
+    for (const d of r.details) {
+      if (!d.ok) console.log(`    ${C.red}${d.message}${C.reset}`);
+    }
+  }
+  console.log(
+    `\n${C.bold}通过 ${report.passed}/${report.total}，平均分 ${report.score.toFixed(2)}${C.reset}`
+  );
+
+  if (setBaseline) {
+    await saveBaseline(config, report);
+    console.log(`${C.green}已保存为基线${C.reset}`);
+    return;
+  }
+
+  const baseline = await loadBaseline(config);
+  if (baseline) {
+    const cmp = compareWithBaseline(report, baseline);
+    if (cmp.regressions.length) {
+      console.log(`${C.red}检测到回归:${C.reset}`);
+      for (const r of cmp.regressions) console.log(`  ${C.red}↓${C.reset} ${r}`);
+    }
+    if (cmp.improvements.length) {
+      console.log(`${C.green}改进:${C.reset}`);
+      for (const r of cmp.improvements) console.log(`  ${C.green}↑${C.reset} ${r}`);
+    }
+    if (!cmp.regressions.length && !cmp.improvements.length) {
+      console.log(`${C.dim}与基线一致${C.reset}`);
+    }
+  } else {
+    console.log(`${C.dim}（用 --baseline 保存当前结果为基线）${C.reset}`);
+  }
+}
+
+/** 插件市场命令 */
+async function runPlugin(sub: string[]): Promise<void> {
+  const { searchPlugins, installPlugin, uninstallPlugin } = await import("./marketplace.js");
+  const config = loadConfig();
+  const cmd = sub[0] ?? "list";
+
+  if (cmd === "search" || cmd === "find") {
+    const query = sub.slice(1).join(" ");
+    process.stdout.write(`${C.dim}搜索插件: ${query || "(全部)"}...${C.reset}\n`);
+    try {
+      const results = await searchPlugins(query);
+      if (!results.length) {
+        console.log("(未找到插件)");
+        return;
+      }
+      for (const p of results) {
+        console.log(
+          `${C.cyan}${p.name}${C.reset}@${p.version}  ${C.dim}${p.author ?? ""}${C.reset}`
+        );
+        console.log(`  ${p.description}`);
+      }
+    } catch (err) {
+      console.error(`${C.red}${err instanceof Error ? err.message : err}${C.reset}`);
+    }
+    return;
+  }
+
+  if (cmd === "list" || cmd === "ls") {
+    console.log(`${C.bold}已配置插件:${C.reset}`);
+    if (!config.plugins.length) {
+      console.log("  (无)");
+      return;
+    }
+    for (const p of config.plugins) console.log(`  ${C.cyan}${p}${C.reset}`);
+    return;
+  }
+
+  if (cmd === "install" || cmd === "add") {
+    const pkg = sub[1];
+    if (!pkg) {
+      console.error(`${C.red}用法: aicoder plugin install <包名>${C.reset}`);
+      process.exit(1);
+    }
+    process.stdout.write(`${C.dim}安装 ${pkg}...${C.reset}\n`);
+    const r = await installPlugin(config, pkg);
+    if (r.ok) {
+      console.log(`${C.green}已安装并写入配置: ${r.configPath}${C.reset}`);
+    } else {
+      console.error(`${C.red}安装失败:\n${r.output}${C.reset}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (cmd === "uninstall" || cmd === "remove" || cmd === "rm") {
+    const pkg = sub[1];
+    if (!pkg) {
+      console.error(`${C.red}用法: aicoder plugin uninstall <包名>${C.reset}`);
+      process.exit(1);
+    }
+    const r = await uninstallPlugin(config, pkg);
+    console.log(
+      r.ok ? `${C.green}已卸载 ${pkg}${C.reset}` : `${C.red}卸载失败:\n${r.output}${C.reset}`
+    );
+    return;
+  }
+
+  console.error(`${C.yellow}用法: aicoder plugin <search|list|install|uninstall> [包名]${C.reset}`);
 }
 
 /** 环境自检 */

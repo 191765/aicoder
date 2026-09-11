@@ -13,9 +13,13 @@ import { installMemoryTool } from "./memory.js";
 import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { installSnapshotTools } from "./snapshots.js";
+import { installFeedbackTool } from "./feedback.js";
 import { ModelRouter } from "./router.js";
 import { log } from "./logger.js";
 import { startSpan } from "./tracing.js";
+import path from "node:path";
+import { ResponseCache } from "./cache.js";
+import { createFallbackProvider } from "./fallback.js";
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -65,6 +69,7 @@ export class Agent {
   private config: Config;
   private router: ModelRouter;
   private providerCache = new Map<string, Provider>();
+  private cache: ResponseCache | null = null;
   private history: ChatMessage[] = [];
   private index: CodeIndex | null = null;
   private useRag: boolean;
@@ -87,6 +92,7 @@ export class Agent {
     installSymbolTools();
     installEditEngine();
     installSnapshotTools();
+    installFeedbackTool();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);
@@ -168,13 +174,33 @@ export class Agent {
   private providerFor(input: string): Provider {
     if (!this.router.enabled) return this.provider;
     const resolved = this.router.resolve({ task: "chat", input });
+    return this.providerForConfig(resolved);
+  }
+
+  private providerForConfig(resolved: Config): Provider {
     const key = `${resolved.baseURL}|${resolved.model}|${resolved.apiKey}`;
     let p = this.providerCache.get(key);
     if (!p) {
-      p = createProvider(resolved);
+      const fallbacks = this.config.fallbackModels ?? [];
+      p = fallbacks.length ? createFallbackProvider(resolved, fallbacks) : createProvider(resolved);
       this.providerCache.set(key, p);
     }
     return p;
+  }
+
+  private responseCache(): ResponseCache | null {
+    if (!this.config.cache?.enabled) return null;
+    if (!this.cache) {
+      const dir = path.join(this.config.workdir, ".aicoder", "cache");
+      this.cache = new ResponseCache({
+        enabled: true,
+        ttlMs: this.config.cache.ttlMs,
+        maxEntries: this.config.cache.maxEntries,
+        persistent: this.config.cache.persistent,
+        dir,
+      });
+    }
+    return this.cache;
   }
 
   async *chat(
@@ -254,11 +280,38 @@ export class Agent {
             messages: ctx.messages.length,
           });
 
-      for await (const ev of activeProvider.stream(
-        ctx.messages,
-        toolSchemas(this.excludeTools),
-        signal
-      )) {
+      const schemaList = toolSchemas(this.excludeTools);
+      const cache = this.responseCache();
+      const cacheKey = cache
+        ? ResponseCache.key(
+            (activeProvider as { model?: string }).model ?? this.config.model,
+            ctx.messages,
+            schemaList,
+            this.config.temperature
+          )
+        : "";
+
+      let cacheHit = false;
+      const buffered: import("./types.js").StreamEvent[] = [];
+
+      let cachedEvents: import("./types.js").StreamEvent[] | null = null;
+      if (cache) {
+        cachedEvents = cache.get(cacheKey) ?? (await cache.load(cacheKey));
+        if (cachedEvents) cacheHit = true;
+      }
+
+      const streamEvents = (async function* () {
+        if (cachedEvents) {
+          for (const ev of cachedEvents) yield ev;
+          return;
+        }
+        for await (const ev of activeProvider.stream(ctx.messages, schemaList, signal)) {
+          yield ev;
+        }
+      })();
+
+      for await (const ev of streamEvents) {
+        if (!cacheHit) buffered.push(ev);
         if (ev.type === "text") {
           assistantText += ev.delta;
           turnOutput += ev.delta;
@@ -269,6 +322,10 @@ export class Agent {
           errored = true;
           yield { type: "error", message: ev.message };
         }
+      }
+
+      if (cache && !cacheHit && !errored && buffered.length) {
+        await cache.set(cacheKey, buffered, (activeProvider as { model?: string }).model ?? "");
       }
 
       if (llmSpan) {

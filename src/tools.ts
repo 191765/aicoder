@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import { checkContent, checkCommand, audit } from "./security.js";
 import { createSnapshot } from "./snapshots.js";
+import { wrapCommand } from "./sandbox.js";
 
 export interface ToolContext {
   workdir: string;
@@ -284,15 +285,13 @@ register({
     const timeout = numArg(args, "timeout_ms", 60_000);
     audit({ action: "run_command", tool: "run_command", target: command, ok: true });
     const { spawn } = await import("node:child_process");
-    const isWin = process.platform === "win32";
-    const shell = isWin ? "powershell.exe" : "/bin/sh";
-    const shellArgs = isWin
-      ? ["-NoProfile", "-NonInteractive", "-Command", command]
-      : ["-c", command];
+    const wrapped = wrapCommand(command);
+    const shell = wrapped.shell;
+    const shellArgs = wrapped.args;
     return await new Promise<string>((resolve) => {
-      const child = spawn(shell, shellArgs, { cwd: ctx.workdir });
+      const child = spawn(shell, shellArgs, { cwd: ctx.workdir, env: wrapped.env });
       let out = "";
-      const cap = 20_000;
+      const cap = wrapped.maxOutputBytes;
       const onData = (b: Buffer) => {
         if (out.length < cap) out += b.toString("utf8");
       };

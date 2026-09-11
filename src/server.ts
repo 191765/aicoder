@@ -194,6 +194,17 @@ async function handle(
     return handleRun(req, res, config);
   }
 
+  if (pathname === "/api/webhook" && req.method === "POST") {
+    if (config.webhookToken) {
+      const t = extractToken(req, url);
+      // Slack 等用 query 传 token 也可
+      if (t !== config.webhookToken) {
+        return json(res, 401, { error: "未授权 webhook" });
+      }
+    }
+    return handleWebhook(req, res, config);
+  }
+
   // 静态文件
   if (req.method === "GET") {
     return serveStatic(pathname, res);
@@ -372,6 +383,47 @@ async function handleChat(
       }
     })();
   });
+}
+
+/**
+ * 多渠道 webhook：解析 Slack/飞书/钉钉/通用消息，运行 Agent 并回复。
+ */
+async function handleWebhook(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: ReturnType<typeof loadConfig>
+): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+  } catch {
+    return json(res, 400, { error: "请求体必须为 JSON" });
+  }
+
+  const { detectChannel, parseIncoming, formatReply } = await import("./channels.js");
+  const headers = req.headers as Record<string, string | string[] | undefined>;
+  const channel = detectChannel(headers, body);
+  const incoming = parseIncoming(channel, body);
+  if (!incoming) {
+    return json(res, 200, formatReply(channel, "（无法解析消息）"));
+  }
+
+  const { Agent } = await import("./agent.js");
+  const agent = new Agent({
+    config: { ...config, autoApprove: false },
+    persist: false,
+    quiet: true,
+  });
+  let text = "";
+  try {
+    for await (const ev of agent.chat(incoming.text)) {
+      if (ev.type === "text") text += ev.delta;
+      else if (ev.type === "error") text += `[错误] ${ev.message}`;
+    }
+  } catch (err) {
+    text = `[异常] ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return json(res, 200, formatReply(channel, text || "（无回复）"));
 }
 
 /**

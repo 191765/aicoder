@@ -78,6 +78,19 @@ export interface Config {
     allowedTools?: string[];
     allowWrite?: boolean;
   }>;
+  /** 响应缓存 */
+  cache: { enabled: boolean; ttlMs: number; maxEntries: number; persistent: boolean };
+  /** 模型降级链 */
+  fallbackModels: Array<{ model: string; baseURL?: string; apiKey?: string }>;
+  /** 执行沙箱 */
+  sandbox: {
+    enabled: boolean;
+    envAllowlist?: string[];
+    noNetwork: boolean;
+    maxOutputBytes: number;
+  };
+  /** Webhook 专用令牌（可留空复用 AICODER_TOKEN） */
+  webhookToken?: string;
   /** 只读工具并发上限 */
   concurrency: number;
   /** UI 配置 */
@@ -215,6 +228,29 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     },
     users: file.users ?? [],
     concurrency: num(process.env.AICODER_CONCURRENCY, 4),
+    cache: {
+      enabled:
+        process.env.AICODER_CACHE !== undefined
+          ? bool(process.env.AICODER_CACHE, false)
+          : (file.cache?.enabled ?? false),
+      ttlMs: num(process.env.AICODER_CACHE_TTL_MS, file.cache?.ttlMs ?? 3600_000),
+      maxEntries: num(process.env.AICODER_CACHE_MAX, file.cache?.maxEntries ?? 500),
+      persistent: file.cache?.persistent ?? false,
+    },
+    fallbackModels: file.fallbackModels ?? [],
+    sandbox: {
+      enabled:
+        process.env.AICODER_SANDBOX !== undefined
+          ? bool(process.env.AICODER_SANDBOX, false)
+          : (file.sandbox?.enabled ?? false),
+      envAllowlist: file.sandbox?.envAllowlist,
+      noNetwork:
+        process.env.AICODER_NO_NETWORK !== undefined
+          ? bool(process.env.AICODER_NO_NETWORK, false)
+          : (file.sandbox?.noNetwork ?? false),
+      maxOutputBytes: file.sandbox?.maxOutputBytes ?? 20_000,
+    },
+    webhookToken: process.env.AICODER_WEBHOOK_TOKEN,
     configSources: sources,
     configIssues: issues,
     configMigrations: migrations,

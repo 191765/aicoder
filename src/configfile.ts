@@ -98,6 +98,26 @@ export interface FileConfig {
     allowedTools?: string[];
     allowWrite?: boolean;
   }>;
+  /** 响应缓存 */
+  cache?: {
+    enabled?: boolean;
+    ttlMs?: number;
+    maxEntries?: number;
+    persistent?: boolean;
+  };
+  /** 模型降级链 */
+  fallbackModels?: Array<{
+    model: string;
+    baseURL?: string;
+    apiKey?: string;
+  }>;
+  /** 执行沙箱 */
+  sandbox?: {
+    enabled?: boolean;
+    envAllowlist?: string[];
+    noNetwork?: boolean;
+    maxOutputBytes?: number;
+  };
   /** 默认主题等 UI 配置 */
   ui?: {
     theme?: string;
