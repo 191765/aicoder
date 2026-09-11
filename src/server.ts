@@ -63,8 +63,11 @@ export async function startServer(): Promise<void> {
   // WebSocket 实时通道
   try {
     const { attachRealtime } = await import("./realtime.js");
-    attachRealtime(server, config, config.token, (token) =>
-      Boolean(users.identify(token, config.token || undefined)) || !config.token
+    attachRealtime(
+      server,
+      config,
+      config.token,
+      (token) => Boolean(users.identify(token, config.token || undefined)) || !config.token
     );
   } catch (err) {
     console.error("实时通道启动失败:", err instanceof Error ? err.message : err);
@@ -75,9 +78,7 @@ type UserRegistry = Awaited<ReturnType<typeof import("./users.js").createUserReg
 
 function extractToken(req: http.IncomingMessage, url: URL): string {
   const header = req.headers["authorization"] ?? "";
-  const bearer = typeof header === "string" && header.startsWith("Bearer ")
-    ? header.slice(7)
-    : "";
+  const bearer = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
   return bearer || url.searchParams.get("token") || "";
 }
 
@@ -85,7 +86,9 @@ function extractToken(req: http.IncomingMessage, url: URL): string {
 function buildUserContent(
   message: string,
   images: Array<{ dataUrl?: string; url?: string }>
-): string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> {
+):
+  | string
+  | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> {
   const valid = images
     .map((i) => i.dataUrl || i.url || "")
     .filter((u) => u.startsWith("data:image") || u.startsWith("http"));
@@ -181,6 +184,16 @@ async function handle(
     return serveStatic("dashboard.html", res);
   }
 
+  if (pathname === "/api/run" && req.method === "POST") {
+    if (!authorized) {
+      return json(res, 401, { error: "未授权" });
+    }
+    if (user?.quotaUsd !== undefined && users.spent(user.name) >= user.quotaUsd) {
+      return json(res, 429, { error: "配额已用尽" });
+    }
+    return handleRun(req, res, config);
+  }
+
   // 静态文件
   if (req.method === "GET") {
     return serveStatic(pathname, res);
@@ -271,11 +284,7 @@ async function handleChat(
   let excludeTools: Set<string> | undefined;
   if (user?.allowedTools && user.allowedTools.length) {
     const { tools: allTools } = await import("./tools.js");
-    const allowed = new Set(
-      allTools
-        .map((t) => t.name)
-        .filter((n) => users.toolAllowed(user, n))
-    );
+    const allowed = new Set(allTools.map((t) => t.name).filter((n) => users.toolAllowed(user, n)));
     excludeTools = new Set(allTools.map((t) => t.name).filter((n) => !allowed.has(n)));
   }
 
@@ -363,6 +372,54 @@ async function handleChat(
       }
     })();
   });
+}
+
+/**
+ * 可编程 API：一次性执行任务，返回最终文本与统计（不流式、不建会话）。
+ * 供其它程序以 HTTP 调用。
+ */
+async function handleRun(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: ReturnType<typeof loadConfig>
+): Promise<void> {
+  let payload: {
+    message?: string;
+    useRag?: boolean;
+    allowWrite?: boolean;
+  } = {};
+  try {
+    payload = JSON.parse(await readBody(req)) as typeof payload;
+  } catch {
+    return json(res, 400, { error: "请求体必须为 JSON" });
+  }
+  const message = (payload.message ?? "").trim();
+  if (!message) return json(res, 400, { error: "缺少 message" });
+
+  const { Agent } = await import("./agent.js");
+  const agent = new Agent({
+    config: { ...config, autoApprove: payload.allowWrite === true },
+    useRag: Boolean(payload.useRag),
+    persist: false,
+    quiet: true,
+  });
+
+  const toolCalls: string[] = [];
+  let text = "";
+  let steps = 0;
+  try {
+    for await (const ev of agent.chat(message)) {
+      if (ev.type === "text") text += ev.delta;
+      else if (ev.type === "tool_end") toolCalls.push(ev.name);
+      else if (ev.type === "step") steps = ev.index;
+      else if (ev.type === "error") {
+        return json(res, 200, { ok: false, error: ev.message, text, toolCalls, steps });
+      }
+    }
+  } catch (err) {
+    return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+  json(res, 200, { ok: true, text, toolCalls, steps });
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {

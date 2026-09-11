@@ -31,11 +31,7 @@ export { installLspTools, setLspServers, closeLspClients } from "./lsp.js";
 export { installMcpServers, closeMcpServers, type McpServerConfig } from "./mcp.js";
 export { initExtensions, shutdownExtensions, type ExtensionReport } from "./runtime.js";
 export type { LspServerConfig } from "./lsp.js";
-export {
-  ModelRouter,
-  inferTaskForTool,
-  type RouteContext,
-} from "./router.js";
+export { ModelRouter, inferTaskForTool, type RouteContext } from "./router.js";
 export {
   saveSession,
   loadSession,

@@ -29,8 +29,7 @@ const TASK_TOOL: ToolDef = {
       },
       prompt: {
         type: "string",
-        description:
-          "给子代理的完整任务说明，应自包含：目标、范围、期望产出。",
+        description: "给子代理的完整任务说明，应自包含：目标、范围、期望产出。",
       },
       max_steps: {
         type: "number",

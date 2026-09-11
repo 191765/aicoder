@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { registerTool, type ToolDef, type ToolContext } from "./tools.js";
+import { registerTool, type ToolDef } from "./tools.js";
 import type { Config } from "./config.js";
 
 /**
@@ -12,11 +12,7 @@ import type { Config } from "./config.js";
  *    跨会话保留。
  */
 
-const CONVENTION_FILES = [
-  "AGENTS.md",
-  "CLAUDE.md",
-  ".aicoder/memory.md",
-];
+const CONVENTION_FILES = ["AGENTS.md", "CLAUDE.md", ".aicoder/memory.md"];
 
 const NOTES_DIR = ".aicoder/notes";
 const MEMORY_FILE = ".aicoder/memory.md";
@@ -103,9 +99,7 @@ const rememberTool: ToolDef = {
 
     const stamp = new Date().toISOString().slice(0, 10);
     const entry = `- (${stamp}) ${content.replace(/\n+/g, " ")}\n`;
-    const existing = header
-      ? header
-      : await fs.readFile(file, "utf8").catch(() => "");
+    const existing = header ? header : await fs.readFile(file, "utf8").catch(() => "");
     await fs.writeFile(file, existing + entry, "utf8");
     return `已记录到 ${MEMORY_FILE}`;
   },

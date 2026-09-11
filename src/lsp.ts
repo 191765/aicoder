@@ -67,7 +67,11 @@ class LspClient {
       const body = this.buffer.subarray(start, start + len).toString("utf8");
       this.buffer = this.buffer.subarray(start + len);
       try {
-        const msg = JSON.parse(body) as { id?: number; result?: unknown; error?: { message: string } };
+        const msg = JSON.parse(body) as {
+          id?: number;
+          result?: unknown;
+          error?: { message: string };
+        };
         if (typeof msg.id === "number" && this.pending.has(msg.id)) {
           const p = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -124,7 +128,7 @@ class LspClient {
   async openFile(abs: string): Promise<string> {
     const uri = pathToFileURL(abs).toString();
     if (this.opened.has(uri)) return uri;
-    let text = "";
+    let text: string;
     try {
       text = await fs.readFile(abs, "utf8");
     } catch {
@@ -177,7 +181,14 @@ export function setLspServers(cfg: Record<string, LspServerConfig>): void {
 
 function pickServer(file: string): LspServerConfig | null {
   const ext = path.extname(file).toLowerCase();
-  if (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs") {
+  if (
+    ext === ".ts" ||
+    ext === ".tsx" ||
+    ext === ".js" ||
+    ext === ".jsx" ||
+    ext === ".mjs" ||
+    ext === ".cjs"
+  ) {
     return lspConfig["typescript"] ?? null;
   }
   if (ext === ".py") return lspConfig["python"] ?? null;
@@ -274,8 +285,7 @@ const lspDefinition: ToolDef = {
 
 const lspReferences: ToolDef = {
   name: "lsp_references",
-  description:
-    "查找符号被引用的所有位置。适合重构前评估影响范围。需提供文件与位置。",
+  description: "查找符号被引用的所有位置。适合重构前评估影响范围。需提供文件与位置。",
   mutating: false,
   parameters: {
     type: "object",
@@ -331,8 +341,7 @@ const lspHover: ToolDef = {
 
 const lspDiagnostics: ToolDef = {
   name: "lsp_diagnostics",
-  description:
-    "获取某个文件的诊断信息（编译错误、类型错误、警告）。修改代码后用它验证。",
+  description: "获取某个文件的诊断信息（编译错误、类型错误、警告）。修改代码后用它验证。",
   mutating: false,
   parameters: {
     type: "object",
@@ -348,7 +357,13 @@ const lspDiagnostics: ToolDef = {
     const uri = await client.openFile(abs);
     const result = (await client.request("textDocument/diagnostic", {
       textDocument: { uri },
-    })) as { items?: Array<{ message: string; severity?: number; range?: { start: { line: number; character: number } } }> } | null;
+    })) as {
+      items?: Array<{
+        message: string;
+        severity?: number;
+        range?: { start: { line: number; character: number } };
+      }>;
+    } | null;
     const items = result?.items ?? [];
     if (!items.length) return "(无诊断问题)";
     const sev = ["", "错误", "警告", "信息", "提示"];
@@ -369,7 +384,13 @@ function formatLocations(result: unknown, workdir: string): string {
     const loc = item as { uri?: string; range?: { start: { line: number; character: number } } };
     if (!loc?.uri || !loc.range) continue;
     const rel = loc.uri.startsWith("file:")
-      ? path.relative(workdir, decodeURIComponent(new URL(loc.uri).pathname.replace(/^\/([A-Za-z]:)/, "$1"))).split(path.sep).join("/")
+      ? path
+          .relative(
+            workdir,
+            decodeURIComponent(new URL(loc.uri).pathname.replace(/^\/([A-Za-z]:)/, "$1"))
+          )
+          .split(path.sep)
+          .join("/")
       : loc.uri;
     lines.push(`${rel}:${loc.range.start.line + 1}:${loc.range.start.character + 1}`);
   }
@@ -380,7 +401,7 @@ function stringifyHover(contents: unknown): string {
   if (typeof contents === "string") return contents;
   if (Array.isArray(contents)) {
     return contents
-      .map((c) => (typeof c === "string" ? c : (c as { value?: string }).value ?? ""))
+      .map((c) => (typeof c === "string" ? c : ((c as { value?: string }).value ?? "")))
       .join("\n");
   }
   const c = contents as { value?: string };

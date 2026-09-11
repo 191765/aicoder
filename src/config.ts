@@ -103,17 +103,14 @@ function loadFileConfig(workdir: string): {
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
-  const workdir = path.resolve(
-    overrides.workdir ?? process.env.AICODER_WORKDIR ?? process.cwd()
-  );
+  const workdir = path.resolve(overrides.workdir ?? process.env.AICODER_WORKDIR ?? process.cwd());
   const { file, sources, issues, migrations } = loadFileConfig(workdir);
   const envRules = process.env.AICODER_PERMISSIONS
     ? process.env.AICODER_PERMISSIONS.split(/\n/)
     : [];
-  const permissionRules = [
-    ...normalizePermissions(file.permissions),
-    ...envRules,
-  ].filter((s) => s.trim().length > 0);
+  const permissionRules = [...normalizePermissions(file.permissions), ...envRules].filter(
+    (s) => s.trim().length > 0
+  );
 
   const budget: ContextBudget = {
     ...DEFAULT_BUDGET,
@@ -170,7 +167,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     lspServers: file.lspServers ?? {},
     models: file.models ?? [],
     plugins: process.env.AICODER_PLUGINS
-      ? process.env.AICODER_PLUGINS.split(/[;,]/).map((s) => s.trim()).filter(Boolean)
+      ? process.env.AICODER_PLUGINS.split(/[;,]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
       : (file.plugins ?? []),
     embeddings: {
       enabled:
@@ -178,13 +177,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
           ? bool(process.env.AICODER_EMBEDDINGS, false)
           : (file.embeddings?.enabled ?? false),
       model:
-        process.env.AICODER_EMBEDDING_MODEL ??
-        file.embeddings?.model ??
-        "text-embedding-3-small",
-      weight: num(
-        process.env.AICODER_EMBEDDING_WEIGHT,
-        file.embeddings?.weight ?? 0.5
-      ),
+        process.env.AICODER_EMBEDDING_MODEL ?? file.embeddings?.model ?? "text-embedding-3-small",
+      weight: num(process.env.AICODER_EMBEDDING_WEIGHT, file.embeddings?.weight ?? 0.5),
     },
     ui: {
       theme: process.env.AICODER_THEME ?? file.ui?.theme,
@@ -210,14 +204,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       auditLog: process.env.AICODER_AUDIT_LOG ?? file.security?.auditLog,
     },
     retry: {
-      maxRetries: num(
-        process.env.AICODER_MAX_RETRIES,
-        file.retry?.maxRetries ?? 3
-      ),
-      baseDelayMs: num(
-        process.env.AICODER_RETRY_DELAY_MS,
-        file.retry?.baseDelayMs ?? 500
-      ),
+      maxRetries: num(process.env.AICODER_MAX_RETRIES, file.retry?.maxRetries ?? 3),
+      baseDelayMs: num(process.env.AICODER_RETRY_DELAY_MS, file.retry?.baseDelayMs ?? 500),
     },
     toolTimeoutMs: num(process.env.AICODER_TOOL_TIMEOUT_MS, 120000),
     github: {
@@ -231,9 +219,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     configIssues: issues,
     configMigrations: migrations,
     autoSummary:
-      process.env.AICODER_SUMMARY !== undefined
-        ? bool(process.env.AICODER_SUMMARY, true)
-        : true,
+      process.env.AICODER_SUMMARY !== undefined ? bool(process.env.AICODER_SUMMARY, true) : true,
     ...overrides,
   };
   // 派生字段归一化：若覆盖了 permissionRules 但未显式覆盖 rules，则重新解析

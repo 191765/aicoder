@@ -1,0 +1,9 @@
+dist
+node_modules
+coverage
+.nyc_output
+web
+vscode-extension
+*.md
+*.json
+*.yml

@@ -27,23 +27,56 @@ export interface SymbolReference {
 }
 
 const CODE_EXT = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".py", ".go", ".rs", ".java", ".rb", ".php",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".rb",
+  ".php",
 ]);
 
 const IGNORE_DIRS = new Set([
-  "node_modules", ".git", "dist", "build", ".next", ".cache",
-  "coverage", "__pycache__", ".venv", "venv", "target", ".turbo", ".aicoder",
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".cache",
+  "coverage",
+  "__pycache__",
+  ".venv",
+  "venv",
+  "target",
+  ".turbo",
+  ".aicoder",
 ]);
 
 const PATTERNS: Array<{ re: RegExp; kind: string; group: number }> = [
-  { re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, kind: "function", group: 1 },
+  {
+    re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/,
+    kind: "function",
+    group: 1,
+  },
   { re: /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/, kind: "class", group: 1 },
   { re: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/, kind: "interface", group: 1 },
   { re: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\s*=/, kind: "type", group: 1 },
-  { re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/, kind: "variable", group: 1 },
+  {
+    re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/,
+    kind: "variable",
+    group: 1,
+  },
   { re: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/, kind: "enum", group: 1 },
-  { re: /^\s*(?:public|private|protected|static|async|\s)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/, kind: "method", group: 1 },
+  {
+    re: /^\s*(?:public|private|protected|static|async|\s)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/,
+    kind: "method",
+    group: 1,
+  },
   { re: /^\s*def\s+([A-Za-z_][\w]*)\s*\(/, kind: "function", group: 1 },
   { re: /^\s*class\s+([A-Za-z_][\w]*)/, kind: "class", group: 1 },
   { re: /^\s*func\s+([A-Za-z_][\w]*)\s*\(/, kind: "function", group: 1 },
@@ -189,8 +222,7 @@ function getIndex(ctx: ToolContext): SymbolIndex {
 
 const findSymbolTool: ToolDef = {
   name: "find_symbol",
-  description:
-    "在工作目录中查找符号（函数/类/接口/变量等）的定义位置。可先用它定位再读取文件。",
+  description: "在工作目录中查找符号（函数/类/接口/变量等）的定义位置。可先用它定位再读取文件。",
   mutating: false,
   parameters: {
     type: "object",
@@ -214,8 +246,7 @@ const findSymbolTool: ToolDef = {
 
 const findReferencesTool: ToolDef = {
   name: "find_references",
-  description:
-    "查找某个符号在工作目录中的所有引用位置（跨文件）。重构前评估影响范围时很有用。",
+  description: "查找某个符号在工作目录中的所有引用位置（跨文件）。重构前评估影响范围时很有用。",
   mutating: false,
   parameters: {
     type: "object",
@@ -228,8 +259,7 @@ const findReferencesTool: ToolDef = {
   async run(args, ctx) {
     const name = typeof args.name === "string" ? args.name : "";
     if (!name) throw new Error("缺少 name");
-    const limit =
-      typeof args.limit === "number" && args.limit > 0 ? Math.floor(args.limit) : 100;
+    const limit = typeof args.limit === "number" && args.limit > 0 ? Math.floor(args.limit) : 100;
     const idx = getIndex(ctx);
     const refs = await idx.references(name, limit);
     if (!refs.length) return `(未找到 ${name} 的引用)`;

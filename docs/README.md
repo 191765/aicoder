@@ -4,5 +4,6 @@
 - [配置参考](configuration.md)
 - [插件开发](plugins.md)
 - [架构说明](architecture.md)
+- [贡献指南](../CONTRIBUTING.md)
 
 更多内容见 [主 README](../README.md)。

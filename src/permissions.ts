@@ -25,12 +25,7 @@ export interface PermissionResult {
 }
 
 /** 默认策略：只读工具放行，写工具询问 */
-export const DEFAULT_READONLY_TOOLS = [
-  "read_file",
-  "list_dir",
-  "glob",
-  "search",
-];
+export const DEFAULT_READONLY_TOOLS = ["read_file", "list_dir", "glob", "search"];
 
 function wildcardToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
@@ -76,10 +71,7 @@ export function parseRules(texts: string[]): PermissionRule[] {
 }
 
 /** 从工具参数中提取用于参数匹配的文本 */
-export function extractArgText(
-  toolName: string,
-  args: Record<string, unknown>
-): string {
+export function extractArgText(toolName: string, args: Record<string, unknown>): string {
   if (toolName === "run_command") {
     return String(args.command ?? "");
   }

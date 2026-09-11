@@ -75,7 +75,10 @@ async function rest(
             "-Command",
             `Invoke-RestMethod -Uri 'https://api.github.com${pathname}' -Headers @{ Authorization = 'Bearer ${token}'; 'User-Agent' = 'aicoder' } -Method GET | ConvertTo-Json -Depth 6`,
           ]
-        : ["-c", `curl -s -H "Authorization: Bearer ${token}" -H "User-Agent: aicoder" https://api.github.com${pathname}`],
+        : [
+            "-c",
+            `curl -s -H "Authorization: Bearer ${token}" -H "User-Agent: aicoder" https://api.github.com${pathname}`,
+          ],
       { cwd }
     );
     let out = "";
@@ -115,8 +118,18 @@ const prReviewTool: ToolDef = {
     const number = str(args, "number");
     const includeDiff = args.include_diff !== false;
     if (await hasGh(ctx.workdir)) {
-      const info = await run("gh", ["pr", "view", number, "--json",
-        "title,body,author,baseRefName,headRefName,files,additions,deletions", ...repoArgs(ctx)], ctx.workdir);
+      const info = await run(
+        "gh",
+        [
+          "pr",
+          "view",
+          number,
+          "--json",
+          "title,body,author,baseRefName,headRefName,files,additions,deletions",
+          ...repoArgs(ctx),
+        ],
+        ctx.workdir
+      );
       let out = info.out;
       if (includeDiff) {
         const diff = await run("gh", ["pr", "diff", number, ...repoArgs(ctx)], ctx.workdir);
@@ -127,7 +140,8 @@ const prReviewTool: ToolDef = {
     // REST 回退
     const owner = ctx.config.github?.owner;
     const repo = ctx.config.github?.repo;
-    if (!owner || !repo) return "需要 gh CLI，或在 .aicoder.json 配置 github.owner/repo 与 GITHUB_TOKEN。";
+    if (!owner || !repo)
+      return "需要 gh CLI，或在 .aicoder.json 配置 github.owner/repo 与 GITHUB_TOKEN。";
     const info = await rest(`/repos/${owner}/${repo}/pulls/${number}`, ctx.workdir);
     let out = JSON.stringify(info.body, null, 2);
     if (includeDiff) {
@@ -153,8 +167,18 @@ const issueViewTool: ToolDef = {
   async run(args, ctx) {
     const number = str(args, "number");
     if (await hasGh(ctx.workdir)) {
-      const r = await run("gh", ["issue", "view", number, "--json",
-        "title,body,author,state,labels,comments", ...repoArgs(ctx)], ctx.workdir);
+      const r = await run(
+        "gh",
+        [
+          "issue",
+          "view",
+          number,
+          "--json",
+          "title,body,author,state,labels,comments",
+          ...repoArgs(ctx),
+        ],
+        ctx.workdir
+      );
       return r.out;
     }
     const owner = ctx.config.github?.owner;

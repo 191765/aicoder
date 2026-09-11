@@ -90,9 +90,7 @@ export class Tui {
 
   private printHeader(): void {
     const t = this.t();
-    this.write(
-      `${t.bold}${t.accent}AICoder${t.reset} ${t.dim}富交互 TUI${t.reset}\n`
-    );
+    this.write(`${t.bold}${t.accent}AICoder${t.reset} ${t.dim}富交互 TUI${t.reset}\n`);
     this.write(
       `${t.dim}模型: ${this.opts.model ?? this.agent.model}  工作目录: ${this.opts.workdir ?? ""}${t.reset}\n`
     );
@@ -237,7 +235,7 @@ export class Tui {
 
   private async handleLocalCommand(text: string): Promise<boolean> {
     const t = this.t();
-    const [cmd, ...rest] = text.split(" ");
+    const [cmd] = text.split(" ");
     switch (cmd) {
       case "/exit":
       case "/quit":

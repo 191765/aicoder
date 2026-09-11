@@ -516,6 +516,58 @@ await agent.chat([
 自动迁移（如顶层安全项 → `security`，`traceFile` → `observability.logFile`）。
 问题与迁移信息会在终端启动时打印。
 
+## 初始化向导
+
+```bash
+npx @191765/aicoder init
+```
+
+交互式引导生成 `.aicoder.json` 与 `.env`（模型、权限、主题、插件、LSP 等）。
+
+## 可编程 API
+
+网页服务提供多种调用方式，方便集成到其它系统：
+
+```bash
+# 一次性执行，返回最终文本与统计（不流式、不建会话）
+curl -X POST http://localhost:8787/api/run \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"message":"统计 src 下的文件数"}'
+
+# 流式对话（SSE）
+curl -N -X POST http://localhost:8787/api/chat \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"message":"解释 src/agent.ts"}'
+
+# WebSocket 实时通道（工具确认、中断）
+# ws://localhost:8787/ws?token=$TOKEN
+```
+
+作为库使用：
+
+```ts
+import { loadConfig, Agent } from "@191765/aicoder";
+const agent = new Agent({ config: loadConfig() });
+for await (const ev of agent.chat("你好")) if (ev.type === "text") process.stdout.write(ev.delta);
+```
+
+## 日志与追踪
+
+- 结构化日志：`AICODER_LOG_LEVEL`（debug/info/warn/error）、`AICODER_LOG_FORMAT`（text/json）
+- 轻量 span 追踪：`llm.generate` 与工具执行会记录耗时，写入 trace JSONL
+
+## 代码质量与安全
+
+- `npm run lint`（ESLint）+ `npm run format`（Prettier）+ pre-commit（lint-staged）
+- `npm run coverage`（c8，带覆盖率阈值）
+- `npm run audit`（依赖漏洞扫描）+ `npm run sbom`（生成 CycloneDX SBOM）
+- 安全模型与报告方式见 [SECURITY.md](SECURITY.md)
+
+## 性能
+
+CLI 启动做了惰性加载优化（如 `--help` 约 0.8s，较优化前约 4 倍提升）；
+项目摘要与 RAG 结果带缓存，避免重复计算。
+
 ## CLI 使用
 
 ```bash

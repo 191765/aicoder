@@ -3,10 +3,7 @@ import type { ChatMessage, ToolCall } from "./types.js";
 import { createProvider, type Provider } from "./provider.js";
 import { findTool, toolSchemas, type ToolContext } from "./tools.js";
 import { CodeIndex } from "./rag.js";
-import {
-  decide,
-  type PermissionContext,
-} from "./permissions.js";
+import { decide, type PermissionContext } from "./permissions.js";
 import { buildContext, historyTokens } from "./context.js";
 import { installSubagentTool } from "./subagent.js";
 import { installGitTools } from "./git.js";
@@ -16,6 +13,8 @@ import { installMemoryTool } from "./memory.js";
 import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { ModelRouter } from "./router.js";
+import { log } from "./logger.js";
+import { startSpan } from "./tracing.js";
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -245,6 +244,14 @@ export class Agent {
       let toolCalls: ToolCall[] = [];
       let errored = false;
 
+      const llmSpan = this.quiet
+        ? null
+        : startSpan("llm.generate", {
+            model: (activeProvider as { model?: string }).model ?? this.config.model,
+            step: step + 1,
+            messages: ctx.messages.length,
+          });
+
       for await (const ev of activeProvider.stream(
         ctx.messages,
         toolSchemas(this.excludeTools),
@@ -262,12 +269,25 @@ export class Agent {
         }
       }
 
+      if (llmSpan) {
+        llmSpan.setAttribute("outputChars", assistantText.length);
+        llmSpan.setAttribute("toolCalls", toolCalls.length);
+        llmSpan.end();
+      }
+
       if (errored) return;
 
       if (toolCalls.length === 0) {
         this.history.push({ role: "assistant", content: assistantText });
         await this.save();
-        this.recordTurnUsage(activeProvider, turnStart, turnOutput, turnSteps, turnToolCalls, baseLen);
+        this.recordTurnUsage(
+          activeProvider,
+          turnStart,
+          turnOutput,
+          turnSteps,
+          turnToolCalls,
+          baseLen
+        );
         yield { type: "done" };
         return;
       }
@@ -321,11 +341,7 @@ export class Agent {
 
           const perm = decide(this.permissionContext(), name, parsed);
           if (!perm.rule) {
-            perm.decision = tool.mutating
-              ? this.config.autoApprove
-                ? "allow"
-                : "ask"
-              : "allow";
+            perm.decision = tool.mutating ? (this.config.autoApprove ? "allow" : "ask") : "allow";
           }
           if (this.extraAllow.has(name) && perm.decision !== "deny") {
             perm.decision = "allow";
@@ -357,9 +373,7 @@ export class Agent {
         if (!p.needConfirm) continue;
         let allow = false;
         if (this.onConfirm) {
-          allow = await this.onConfirm(
-            `允许执行工具 ${p.name}?\n参数: ${p.rawArgs}`
-          );
+          allow = await this.onConfirm(`允许执行工具 ${p.name}?\n参数: ${p.rawArgs}`);
         }
         if (allow) {
           this.extraAllow.add(p.name);
@@ -386,23 +400,30 @@ export class Agent {
 
       // 并发执行只读工具（限制并发数）
       const runOne = async (p: Planned): Promise<{ result: string; ok: boolean }> => {
+        const t0 = Date.now();
         try {
           const result = await this.runToolSafe(p.tool!, p.parsed!, toolContext, p.name);
+          log.info("tool.executed", { tool: p.name, ok: true, ms: Date.now() - t0 });
           return { result, ok: true };
         } catch (err) {
-          return { result: `错误: ${err instanceof Error ? err.message : String(err)}`, ok: false };
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn("tool.failed", { tool: p.name, error: msg, ms: Date.now() - t0 });
+          return { result: `错误: ${msg}`, ok: false };
         }
       };
 
       const concResults = new Map<Planned, { result: string; ok: boolean }>();
       let cursor = 0;
-      const workers = Array.from({ length: Math.min(maxConc, concurrentQueue.length) }, async () => {
-        while (cursor < concurrentQueue.length) {
-          const idx = cursor++;
-          const p = concurrentQueue[idx]!;
-          concResults.set(p, await runOne(p));
+      const workers = Array.from(
+        { length: Math.min(maxConc, concurrentQueue.length) },
+        async () => {
+          while (cursor < concurrentQueue.length) {
+            const idx = cursor++;
+            const p = concurrentQueue[idx]!;
+            concResults.set(p, await runOne(p));
+          }
         }
-      });
+      );
       await Promise.all(workers);
 
       for (const p of concurrentQueue) {
@@ -524,9 +545,9 @@ export class Agent {
       .replace("{OS}", process.platform)
       .replace(
         "{RAG_CONTEXT}",
-        (ragContext
-          ? `以下是代码库检索到的相关片段，可作为参考：\n\n${ragContext}`
-          : "") + memoryBlock + summaryBlock
+        (ragContext ? `以下是代码库检索到的相关片段，可作为参考：\n\n${ragContext}` : "") +
+          memoryBlock +
+          summaryBlock
       );
   }
 }

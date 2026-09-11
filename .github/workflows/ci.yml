@@ -27,14 +27,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
 
       - name: Build
         run: npm run build
 
       - name: Test
         run: npm test
+
+      - name: Coverage
+        run: npm run coverage
+
+      - name: Generate SBOM
+        run: npm run sbom
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
 
   publish:
     needs: build-and-test

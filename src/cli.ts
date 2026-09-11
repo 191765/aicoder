@@ -2,7 +2,7 @@
 import readline from "node:readline";
 import process from "node:process";
 import { loadConfig } from "./config.js";
-import { Agent } from "./agent.js";
+import type { Agent } from "./agent.js";
 
 const C = {
   reset: "\x1b[0m",
@@ -27,6 +27,7 @@ function printHelp(): void {
   aicoder --session=<id>     使用指定会话 id
   aicoder --no-save          不持久化本次会话
   aicoder sessions           列出已保存会话
+  aicoder init               交互式生成配置文件
   aicoder web                启动网页版 (http://localhost:8787)
   aicoder rag                仅构建代码索引
 
@@ -38,7 +39,8 @@ function printHelp(): void {
 
 扩展能力（在 .aicoder.json 中配置）:
   mcpServers  MCP 服务器          lspServers  LSP 语言服务器
-内置工具: 文件/搜索/命令、task 子代理、git_*、lsp_*、mcp__*
+内置工具: 文件/搜索/命令、task 子代理、git_*、lsp_*、symbols、multi_edit、mcp__*
+网页 API: POST /api/chat (SSE)、POST /api/run (一次性)、/ws (WebSocket)、/api/metrics
 
 配置见 .env（AICODER_API_KEY / AICODER_BASE_URL / AICODER_MODEL 等）`);
 }
@@ -59,6 +61,11 @@ async function main(): Promise<void> {
     const idx = new CodeIndex(config);
     const n = await idx.build();
     console.log(`\r索引完成：${n} 个片段 -> ${idx.indexPath}   `);
+    return;
+  }
+
+  if (args[0] === "init") {
+    await runInit();
     return;
   }
 
@@ -104,7 +111,9 @@ async function main(): Promise<void> {
   }
   for (const issue of config.configIssues ?? []) {
     const color = issue.severity === "error" ? C.red : C.yellow;
-    console.log(`${color}配置${issue.severity === "error" ? "错误" : "警告"}: ${issue.path} - ${issue.message}${C.reset}`);
+    console.log(
+      `${color}配置${issue.severity === "error" ? "错误" : "警告"}: ${issue.path} - ${issue.message}${C.reset}`
+    );
   }
 
   const { initExtensions, shutdownExtensions } = await import("./runtime.js");
@@ -155,7 +164,8 @@ async function main(): Promise<void> {
   }
   if (!sessionId && !noPersist) sessionId = newSessionId();
 
-  const agent = new Agent({
+  const { Agent: AgentClass } = await import("./agent.js");
+  const agent = new AgentClass({
     config,
     useRag: wantRag,
     onConfirm: confirmPrompt,
@@ -168,9 +178,7 @@ async function main(): Promise<void> {
     if (stored && stored.messages.length) {
       agent.loadHistory(stored.messages);
       restored = true;
-      console.log(
-        `${C.dim}已载入 ${stored.messages.length} 条历史（${stored.title}）${C.reset}`
-      );
+      console.log(`${C.dim}已载入 ${stored.messages.length} 条历史（${stored.title}）${C.reset}`);
     }
   }
 
@@ -183,7 +191,9 @@ async function main(): Promise<void> {
   if (sessionId) {
     console.log(`${C.dim}会话: ${sessionId}${restored ? " (已恢复)" : ""}${C.reset}`);
   }
-  console.log(`${C.dim}输入内容开始对话。命令: /exit 退出, /reset 清空上下文, /rag 重建索引, /save 保存, /sessions 列表${C.reset}\n`);
+  console.log(
+    `${C.dim}输入内容开始对话。命令: /exit 退出, /reset 清空上下文, /rag 重建索引, /save 保存, /sessions 列表${C.reset}\n`
+  );
 
   if (once) {
     await runTurn(agent, once);
@@ -192,13 +202,12 @@ async function main(): Promise<void> {
   }
 
   const wantTui =
-    args.includes("--tui") ||
-    (config.ui?.rich === true && !args.includes("--no-tui"));
+    args.includes("--tui") || (config.ui?.rich === true && !args.includes("--no-tui"));
 
   if (wantTui) {
     const { runTui } = await import("./tui.js");
     const handleCommand = async (text: string): Promise<void> => {
-        const [cmd = "", ...rest] = text.split(" ");
+      const [cmd = "", ...rest] = text.split(" ");
       if (cmd === "/rag") {
         const n = await agent.prepareRag();
         console.log(`${C.dim}索引完成：${n} 个片段${C.reset}`);
@@ -292,7 +301,7 @@ async function main(): Promise<void> {
       }
       if (text.startsWith("/")) {
         const { findPluginCommand } = await import("./plugins.js");
-      const [cmd = "", ...rest] = text.split(" ");
+        const [cmd = "", ...rest] = text.split(" ");
         const found = findPluginCommand(cmd);
         if (found) {
           await found.command.run({
@@ -384,6 +393,85 @@ function confirmPrompt(question: string): Promise<boolean> {
       resolve(/^y(es)?$/i.test(ans.trim()));
     });
   });
+}
+
+/** 交互式初始化向导：生成 .aicoder.json 与 .env */
+async function runInit(): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const workdir = process.cwd();
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string, def = ""): Promise<string> =>
+    new Promise((resolve) =>
+      rl.question(`${C.cyan}${q}${def ? ` (${def})` : ""}${C.reset} `, (a) =>
+        resolve(a.trim() || def)
+      )
+    );
+
+  console.log(`${C.bold}${C.cyan}AICoder 初始化向导${C.reset}\n`);
+
+  const baseURL = await ask("API Base URL", "https://api.openai.com/v1");
+  const model = await ask("模型名", "gpt-4o-mini");
+  const apiKey = await ask("API Key（可留空，稍后写入 .env）");
+  const theme = await ask("主题 dark/light/plain", "dark");
+  const locale = await ask("语言 zh/en", "zh");
+  const autoApprove = (await ask("自动批准写操作? y/N", "N")).toLowerCase().startsWith("y");
+  const enabledPlugins = (await ask("启用示例插件? y/N", "N")).toLowerCase().startsWith("y");
+  const enableLsp = (await ask("启用 TypeScript LSP? y/N", "N")).toLowerCase().startsWith("y");
+
+  const config: Record<string, unknown> = {
+    $schema: "./aicoder.schema.json",
+    $version: 1,
+    model,
+    baseURL,
+    autoApprove,
+    permissions: {
+      allow: ["read_file", "list_dir", "glob", "search", "find_symbol", "find_references"],
+      ask: ["write_file", "edit_file", "run_command"],
+      deny: ["run_command(rm -rf|format )"],
+    },
+    context: { maxContextTokens: 65536, keepRecentMessages: 10 },
+    observability: { enabled: true },
+    ui: { theme, locale },
+  };
+  if (enabledPlugins) config.plugins = ["./examples/plugins/hello.mjs"];
+  if (enableLsp)
+    config.lspServers = {
+      typescript: { command: "typescript-language-server", args: ["--stdio"] },
+    };
+
+  const configPath = path.join(workdir, ".aicoder.json");
+  let writeConfig = true;
+  try {
+    await fs.access(configPath);
+    writeConfig = (await ask(".aicoder.json 已存在，覆盖? y/N", "N")).toLowerCase().startsWith("y");
+  } catch {
+    /* 不存在 */
+  }
+  if (writeConfig) {
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+    console.log(`${C.green}已写入 ${configPath}${C.reset}`);
+  }
+
+  if (apiKey) {
+    const envPath = path.join(workdir, ".env");
+    let writeEnv = true;
+    try {
+      await fs.access(envPath);
+      writeEnv = (await ask(".env 已存在，覆盖? y/N", "N")).toLowerCase().startsWith("y");
+    } catch {
+      /* 不存在 */
+    }
+    if (writeEnv) {
+      const env = `AICODER_API_KEY=${apiKey}\nAICODER_BASE_URL=${baseURL}\nAICODER_MODEL=${model}\n`;
+      await fs.writeFile(envPath, env, "utf8");
+      console.log(`${C.green}已写入 ${envPath}${C.reset}`);
+      console.log(`${C.dim}提示：.env 已被 .gitignore 忽略，不会提交。${C.reset}`);
+    }
+  }
+
+  rl.close();
+  console.log(`\n${C.green}初始化完成！${C.reset} 运行 ${C.bold}aicoder${C.reset} 开始对话。`);
 }
 
 main().catch((err) => {

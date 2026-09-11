@@ -23,10 +23,7 @@ export interface EditResult {
 }
 
 /** 在文本上应用一组编辑，返回新文本或错误 */
-export function applyEdits(
-  original: string,
-  ops: EditOp[]
-): { text: string; errors: string[] } {
+export function applyEdits(original: string, ops: EditOp[]): { text: string; errors: string[] } {
   let text = original;
   const errors: string[] = [];
 
@@ -46,9 +43,7 @@ export function applyEdits(
       continue;
     }
     // 逐一替换（非唯一时全部替换）
-    text = unique
-      ? text.replace(oldStr, newStr)
-      : text.split(oldStr).join(newStr);
+    text = unique ? text.replace(oldStr, newStr) : text.split(oldStr).join(newStr);
   }
 
   return { text, errors };
@@ -93,7 +88,13 @@ const multiEditTool: ToolDef = {
     for (const e of edits) {
       const sc = checkContent(e.new_string ?? "");
       if (!sc.allowed) {
-        audit({ action: "block_secret_edit", tool: "multi_edit", target: String(args.path), ok: false, detail: sc.reason });
+        audit({
+          action: "block_secret_edit",
+          tool: "multi_edit",
+          target: String(args.path),
+          ok: false,
+          detail: sc.reason,
+        });
         throw new Error(sc.reason);
       }
     }
@@ -102,14 +103,25 @@ const multiEditTool: ToolDef = {
     const { text, errors } = applyEdits(original, edits);
 
     if (errors.length) {
-      audit({ action: "multi_edit", tool: "multi_edit", target: String(args.path), ok: false, detail: errors.join("; ") });
+      audit({
+        action: "multi_edit",
+        tool: "multi_edit",
+        target: String(args.path),
+        ok: false,
+        detail: errors.join("; "),
+      });
       throw new Error(
         `编辑冲突，未做任何改动：\n${errors.join("\n")}\n\n请先用 read_file 确认当前内容后重试。`
       );
     }
 
     await fs.writeFile(p, text, "utf8");
-    audit({ action: "multi_edit", tool: "multi_edit", target: path.relative(ctx.workdir, p), ok: true });
+    audit({
+      action: "multi_edit",
+      tool: "multi_edit",
+      target: path.relative(ctx.workdir, p),
+      ok: true,
+    });
     return `已对 ${path.relative(ctx.workdir, p)} 应用 ${edits.length} 处编辑`;
   },
 };

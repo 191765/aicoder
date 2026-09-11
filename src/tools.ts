@@ -57,8 +57,7 @@ function numArg(args: Record<string, unknown>, key: string, def: number): number
 
 register({
   name: "read_file",
-  description:
-    "读取工作目录内某个文本文件的内容。可指定起始行 offset 与最大行数 limit。",
+  description: "读取工作目录内某个文本文件的内容。可指定起始行 offset 与最大行数 limit。",
   mutating: false,
   parameters: {
     type: "object",
@@ -76,21 +75,16 @@ register({
     const raw = await fs.readFile(p, "utf8");
     const lines = raw.split(/\r?\n/);
     const slice = lines.slice(offset - 1, offset - 1 + limit);
-    const numbered = slice
-      .map((l, i) => `${String(offset + i).padStart(5)}: ${l}`)
-      .join("\n");
+    const numbered = slice.map((l, i) => `${String(offset + i).padStart(5)}: ${l}`).join("\n");
     const note =
-      offset - 1 + limit < lines.length
-        ? `\n... (文件共 ${lines.length} 行，已截断)`
-        : "";
+      offset - 1 + limit < lines.length ? `\n... (文件共 ${lines.length} 行，已截断)` : "";
     return numbered + note;
   },
 });
 
 register({
   name: "write_file",
-  description:
-    "将内容写入工作目录内的文件（覆盖式）。会创建不存在的父目录。",
+  description: "将内容写入工作目录内的文件（覆盖式）。会创建不存在的父目录。",
   mutating: true,
   parameters: {
     type: "object",
@@ -105,13 +99,24 @@ register({
     let content = typeof args.content === "string" ? args.content : "";
     const sc = checkContent(content);
     if (!sc.allowed) {
-      audit({ action: "block_secret_write", tool: "write_file", target: args.path as string, ok: false, detail: sc.reason });
+      audit({
+        action: "block_secret_write",
+        tool: "write_file",
+        target: args.path as string,
+        ok: false,
+        detail: sc.reason,
+      });
       throw new Error(sc.reason);
     }
     if (sc.redacted !== undefined) content = sc.redacted;
     await fs.mkdir(path.dirname(p), { recursive: true });
     await fs.writeFile(p, content, "utf8");
-    audit({ action: "write_file", tool: "write_file", target: path.relative(ctx.workdir, p), ok: true });
+    audit({
+      action: "write_file",
+      tool: "write_file",
+      target: path.relative(ctx.workdir, p),
+      ok: true,
+    });
     return `已写入 ${path.relative(ctx.workdir, p)} (${content.length} 字符)`;
   },
 });
@@ -136,7 +141,13 @@ register({
     let newStr = typeof args.new_string === "string" ? args.new_string : "";
     const sc = checkContent(newStr);
     if (!sc.allowed) {
-      audit({ action: "block_secret_edit", tool: "edit_file", target: args.path as string, ok: false, detail: sc.reason });
+      audit({
+        action: "block_secret_edit",
+        tool: "edit_file",
+        target: args.path as string,
+        ok: false,
+        detail: sc.reason,
+      });
       throw new Error(sc.reason);
     }
     if (sc.redacted !== undefined) newStr = sc.redacted;
@@ -145,7 +156,12 @@ register({
     if (count === 0) throw new Error("未找到 old_string，无法替换");
     if (count > 1) throw new Error(`old_string 出现 ${count} 次，不唯一`);
     await fs.writeFile(p, raw.replace(oldStr, newStr), "utf8");
-    audit({ action: "edit_file", tool: "edit_file", target: path.relative(ctx.workdir, p), ok: true });
+    audit({
+      action: "edit_file",
+      tool: "edit_file",
+      target: path.relative(ctx.workdir, p),
+      ok: true,
+    });
     return `已修改 ${path.relative(ctx.workdir, p)}`;
   },
 });
@@ -165,17 +181,18 @@ register({
     const raw = str(args, "path", false) || ".";
     const p = safeResolve(ctx.workdir, raw);
     const entries = await fs.readdir(p, { withFileTypes: true });
-    return entries
-      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
-      .sort()
-      .join("\n") || "(空目录)";
+    return (
+      entries
+        .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+        .sort()
+        .join("\n") || "(空目录)"
+    );
   },
 });
 
 register({
   name: "glob",
-  description:
-    "按 glob 模式查找文件，支持 * 与 ** 通配。例如 src/**/*.ts。",
+  description: "按 glob 模式查找文件，支持 * 与 ** 通配。例如 src/**/*.ts。",
   mutating: false,
   parameters: {
     type: "object",
@@ -193,8 +210,7 @@ register({
 
 register({
   name: "search",
-  description:
-    "在工作目录内按正则表达式搜索文件内容，返回匹配的文件、行号与文本。",
+  description: "在工作目录内按正则表达式搜索文件内容，返回匹配的文件、行号与文本。",
   mutating: false,
   parameters: {
     type: "object",
@@ -253,7 +269,13 @@ register({
     const command = str(args, "command");
     const sec = checkCommand(command);
     if (!sec.allowed) {
-      audit({ action: "block_command", tool: "run_command", target: command, ok: false, detail: sec.reason });
+      audit({
+        action: "block_command",
+        tool: "run_command",
+        target: command,
+        ok: false,
+        detail: sec.reason,
+      });
       throw new Error(sec.reason);
     }
     const timeout = numArg(args, "timeout_ms", 60_000);
@@ -354,11 +376,7 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
-async function walkGlob(
-  root: string,
-  pattern: string,
-  max: number
-): Promise<string[]> {
+async function walkGlob(root: string, pattern: string, max: number): Promise<string[]> {
   const files = await walkAll(root, 5000);
   const re = globToRegExp(pattern);
   return files.filter((f) => re.test(f)).slice(0, max);

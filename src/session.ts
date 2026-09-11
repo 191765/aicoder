@@ -32,8 +32,8 @@ export function sessionsDir(): string {
   const base =
     process.env.AICODER_HOME ??
     (process.platform === "win32"
-      ? process.env.APPDATA ?? path.join(home, "AppData", "Roaming")
-      : process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"));
+      ? (process.env.APPDATA ?? path.join(home, "AppData", "Roaming"))
+      : (process.env.XDG_CONFIG_HOME ?? path.join(home, ".config")));
   return path.join(base, "aicoder", "sessions");
 }
 
@@ -114,9 +114,7 @@ export function deriveTitle(messages: ChatMessage[]): string {
   const text =
     typeof first.content === "string"
       ? first.content
-      : first.content
-          .map((p) => (p.type === "text" ? p.text : "[图片]"))
-          .join(" ");
+      : first.content.map((p) => (p.type === "text" ? p.text : "[图片]")).join(" ");
   const t = text.replace(/\s+/g, " ").trim();
   return t.length > 40 ? t.slice(0, 40) + "…" : t;
 }

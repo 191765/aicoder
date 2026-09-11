@@ -77,7 +77,7 @@ function contentToText(content: unknown): string {
     return content
       .map((p) => {
         const part = p as { type?: string; text?: string };
-        return part.type === "text" ? part.text ?? "" : "[图片]";
+        return part.type === "text" ? (part.text ?? "") : "[图片]";
       })
       .join(" ");
   }
@@ -93,11 +93,7 @@ function priceFor(model: string): { input: number; output: number } {
   return { input: 0, output: 0 };
 }
 
-export function estimateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number
-): number {
+export function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const p = priceFor(model);
   return (inputTokens / 1000) * p.input + (outputTokens / 1000) * p.output;
 }
@@ -136,8 +132,7 @@ export function recordUsage(input: RecordUsageInput): UsageRecord {
   const inputTokens =
     input.providerInputTokens ??
     input.messages.reduce((s, m) => s + estimateTokens(contentToText(m.content)), 0) + 4;
-  const outputTokens =
-    input.providerOutputTokens ?? estimateTokens(input.outputText);
+  const outputTokens = input.providerOutputTokens ?? estimateTokens(input.outputText);
   const costUsd = estimateCost(input.model, inputTokens, outputTokens);
   const rec: UsageRecord = {
     ts: Date.now(),
@@ -156,9 +151,7 @@ export function recordUsage(input: RecordUsageInput): UsageRecord {
     if (total >= budgetUsd) {
       budgetWarned = true;
       trace({ type: "budget_exceeded", budgetUsd, total });
-      process.stderr.write(
-        `\n[预算告警] 累计费用 $${total.toFixed(4)} 已超出预算 $${budgetUsd}\n`
-      );
+      process.stderr.write(`\n[预算告警] 累计费用 $${total.toFixed(4)} 已超出预算 $${budgetUsd}\n`);
     }
   }
   return rec;

@@ -131,8 +131,7 @@ class McpClient {
     const res = await this.request("tools/call", { name, arguments: args });
     if (res.error) return `MCP 调用错误: ${res.error.message}`;
     const result = res.result as
-      | { content?: Array<{ type: string; text?: string }>; isError?: boolean }
-      | undefined;
+      { content?: Array<{ type: string; text?: string }>; isError?: boolean } | undefined;
     const parts = (result?.content ?? [])
       .map((c) => c.text ?? (c.type === "image" ? "[图片]" : ""))
       .filter(Boolean);

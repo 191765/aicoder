@@ -122,8 +122,8 @@ function configHome(): string {
   if (process.env.AICODER_HOME) return process.env.AICODER_HOME;
   const home = os.homedir();
   return process.platform === "win32"
-    ? process.env.APPDATA ?? path.join(home, "AppData", "Roaming")
-    : process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
+    ? (process.env.APPDATA ?? path.join(home, "AppData", "Roaming"))
+    : (process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"));
 }
 
 function globalConfigPath(): string {
@@ -131,10 +131,7 @@ function globalConfigPath(): string {
 }
 
 function projectConfigPaths(workdir: string): string[] {
-  return [
-    path.join(workdir, ".aicoder.json"),
-    path.join(workdir, "aicoder.json"),
-  ];
+  return [path.join(workdir, ".aicoder.json"), path.join(workdir, "aicoder.json")];
 }
 
 function tryRead(p: string): FileConfig | null {
@@ -176,10 +173,7 @@ export function loadLayeredConfig(workdir: string): LayeredConfig {
   const migrations: string[] = [];
   let merged: FileConfig = {};
 
-  const candidates = [
-    globalConfigPath(),
-    ...projectConfigPaths(workdir),
-  ];
+  const candidates = [globalConfigPath(), ...projectConfigPaths(workdir)];
 
   for (const p of candidates) {
     const raw = tryRead(p);
@@ -202,9 +196,7 @@ export function loadLayeredConfig(workdir: string): LayeredConfig {
 }
 
 /** 将 permissions 对象形式 { allow: [], ask: [], deny: [] } 转为规则文本 */
-export function normalizePermissions(
-  perms: FileConfig["permissions"]
-): string[] {
+export function normalizePermissions(perms: FileConfig["permissions"]): string[] {
   if (!perms) return [];
   if (Array.isArray(perms)) return perms;
   const out: string[] = [];

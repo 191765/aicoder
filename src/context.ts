@@ -101,10 +101,7 @@ export function buildContext(
   budget: ContextBudget = DEFAULT_BUDGET
 ): TrimResult {
   const systemTokens = estimateTokens(system) + 4;
-  const available = Math.max(
-    256,
-    budget.maxContextTokens - budget.reserveForOutput - systemTokens
-  );
+  const available = Math.max(256, budget.maxContextTokens - budget.reserveForOutput - systemTokens);
 
   // 先对历史中的工具结果做长度压缩（不改变消息数量）
   const normalized = history.map((m) => {
@@ -163,9 +160,7 @@ function dropDanglingTools(messages: ChatMessage[]): ChatMessage[] {
     if (msg.role === "tool") {
       // 检查前面是否有声明该 tool_call_id 的 assistant 消息
       const hasOwner = out.some(
-        (m) =>
-          m.role === "assistant" &&
-          m.tool_calls?.some((tc) => tc.id === msg.tool_call_id)
+        (m) => m.role === "assistant" && m.tool_calls?.some((tc) => tc.id === msg.tool_call_id)
       );
       if (!hasOwner) continue;
     }

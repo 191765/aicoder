@@ -23,10 +23,7 @@ export interface PluginTool {
   description: string;
   parameters?: Record<string, unknown>;
   mutating?: boolean;
-  run(
-    args: Record<string, unknown>,
-    ctx: ToolContext
-  ): Promise<string> | string;
+  run(args: Record<string, unknown>, ctx: ToolContext): Promise<string> | string;
 }
 
 export interface PluginCommandContext {
@@ -119,10 +116,7 @@ async function resolveFile(base: string): Promise<string> {
   throw new Error(`插件文件不存在: ${base}`);
 }
 
-export async function loadPlugins(
-  config: Config,
-  specs?: string[]
-): Promise<LoadedPlugin[]> {
+export async function loadPlugins(config: Config, specs?: string[]): Promise<LoadedPlugin[]> {
   const list = specs ?? config.plugins ?? [];
   const report: LoadedPlugin[] = [];
   for (const spec of list) {
@@ -181,7 +175,11 @@ export function findPluginCommand(
   return null;
 }
 
-export function listPluginCommands(): Array<{ plugin: string; name: string; description?: string }> {
+export function listPluginCommands(): Array<{
+  plugin: string;
+  name: string;
+  description?: string;
+}> {
   const out: Array<{ plugin: string; name: string; description?: string }> = [];
   for (const p of loadedPlugins) {
     for (const c of p.module.commands ?? []) {

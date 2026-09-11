@@ -25,11 +25,7 @@ const SUBAGENT_PROMPT = `你是 AICoder 的编排子代理，负责独立完成�
 
 {RAG_CONTEXT}`;
 
-async function runSubagent(
-  ctx: ToolContext,
-  prompt: string,
-  maxSteps: number
-): Promise<string> {
+async function runSubagent(ctx: ToolContext, prompt: string, maxSteps: number): Promise<string> {
   const { Agent: AgentClass } = await import("./agent.js");
   const cfg: Config = { ...ctx.config, maxSteps };
   const sub: Agent = new AgentClass({
@@ -93,9 +89,7 @@ const parallelTool: ToolDef = {
       })
     );
 
-    return results
-      .map((r, i) => `### [${i + 1}] ${r.desc}\n${r.conclusion}`)
-      .join("\n\n");
+    return results.map((r, i) => `### [${i + 1}] ${r.desc}\n${r.conclusion}`).join("\n\n");
   },
 };
 
@@ -116,8 +110,7 @@ const pipelineTool: ToolDef = {
             description: { type: "string", description: "步骤标题" },
             prompt: {
               type: "string",
-              description:
-                "步骤说明。可用 {{input}} 占位符引用上一步的结论。",
+              description: "步骤说明。可用 {{input}} 占位符引用上一步的结论。",
             },
           },
           required: ["prompt"],

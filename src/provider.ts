@@ -52,10 +52,14 @@ export class OpenAICompatProvider implements Provider {
     return new Promise((resolve, reject) => {
       const t = setTimeout(resolve, ms);
       if (signal) {
-        signal.addEventListener("abort", () => {
-          clearTimeout(t);
-          reject(new Error("aborted"));
-        }, { once: true });
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            reject(new Error("aborted"));
+          },
+          { once: true }
+        );
       }
     });
   }
@@ -145,9 +149,7 @@ export class OpenAICompatProvider implements Provider {
     if (toolAcc.size > 0) {
       yield {
         type: "tool_calls",
-        toolCalls: [...toolAcc.entries()]
-          .sort((a, b) => a[0] - b[0])
-          .map(([, v]) => v),
+        toolCalls: [...toolAcc.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v),
       };
     }
     yield { type: "done", finishReason };
@@ -157,9 +159,7 @@ export class OpenAICompatProvider implements Provider {
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) {
     const anyErr = err as { status?: number; message: string };
-    return anyErr.status
-      ? `[HTTP ${anyErr.status}] ${anyErr.message}`
-      : anyErr.message;
+    return anyErr.status ? `[HTTP ${anyErr.status}] ${anyErr.message}` : anyErr.message;
   }
   return String(err);
 }

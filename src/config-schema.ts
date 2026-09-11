@@ -103,7 +103,12 @@ export function validateConfig(raw: unknown): ValidationIssue[] {
 
   // 校验 context
   if (isObject(raw.context)) {
-    for (const f of ["maxContextTokens", "reserveForOutput", "keepRecentMessages", "toolResultMaxChars"]) {
+    for (const f of [
+      "maxContextTokens",
+      "reserveForOutput",
+      "keepRecentMessages",
+      "toolResultMaxChars",
+    ]) {
       const v = (raw.context as ConfigObject)[f];
       if (v !== undefined && !isNumber(v)) {
         issues.push({ path: `context.${f}`, message: "应为数字", severity: "error" });
@@ -119,7 +124,11 @@ export function validateConfig(raw: unknown): ValidationIssue[] {
         return;
       }
       if (!isString(m.model)) {
-        issues.push({ path: `models[${i}].model`, message: "缺少 model 字符串", severity: "error" });
+        issues.push({
+          path: `models[${i}].model`,
+          message: "缺少 model 字符串",
+          severity: "error",
+        });
       }
     });
   }
@@ -131,8 +140,10 @@ export function validateConfig(raw: unknown): ValidationIssue[] {
         issues.push({ path: `users[${i}]`, message: "应为对象", severity: "error" });
         return;
       }
-      if (!isString(u.name)) issues.push({ path: `users[${i}].name`, message: "缺少 name", severity: "error" });
-      if (!isString(u.token)) issues.push({ path: `users[${i}].token`, message: "缺少 token", severity: "error" });
+      if (!isString(u.name))
+        issues.push({ path: `users[${i}].name`, message: "缺少 name", severity: "error" });
+      if (!isString(u.token))
+        issues.push({ path: `users[${i}].token`, message: "缺少 token", severity: "error" });
       if (u.quotaUsd !== undefined && !isNumber(u.quotaUsd)) {
         issues.push({ path: `users[${i}].quotaUsd`, message: "应为数字", severity: "error" });
       }

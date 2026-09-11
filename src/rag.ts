@@ -42,20 +42,85 @@ interface IndexFile {
 
 const INDEX_FILENAME = ".aicoder-index.json";
 const CODE_EXT = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".java",
-  ".c", ".h", ".cpp", ".hpp", ".cc", ".cs", ".rb", ".php", ".swift", ".kt",
-  ".scala", ".sh", ".ps1", ".sql", ".html", ".css", ".scss", ".vue", ".svelte",
-  ".json", ".yaml", ".yml", ".toml", ".md", ".txt", ".xml", ".ini",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".cc",
+  ".cs",
+  ".rb",
+  ".php",
+  ".swift",
+  ".kt",
+  ".scala",
+  ".sh",
+  ".ps1",
+  ".sql",
+  ".html",
+  ".css",
+  ".scss",
+  ".vue",
+  ".svelte",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".md",
+  ".txt",
+  ".xml",
+  ".ini",
 ]);
 
 const IGNORE_DIRS = new Set([
-  "node_modules", ".git", "dist", "build", ".next", ".cache", "coverage",
-  "__pycache__", ".venv", "venv", ".idea", ".vscode", "target", ".turbo",
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".cache",
+  "coverage",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".idea",
+  ".vscode",
+  "target",
+  ".turbo",
 ]);
 
 const STOP = new Set([
-  "the", "a", "an", "and", "or", "of", "to", "in", "is", "it", "for", "on",
-  "with", "as", "at", "by", "be", "this", "that", "are", "was", "from",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "of",
+  "to",
+  "in",
+  "is",
+  "it",
+  "for",
+  "on",
+  "with",
+  "as",
+  "at",
+  "by",
+  "be",
+  "this",
+  "that",
+  "are",
+  "was",
+  "from",
 ]);
 
 /** 支持中英文的简易分词：英文/数字按词，中文按字 */
@@ -239,7 +304,7 @@ export class CodeIndex {
     const hasVectors = this.embedder && this.chunks.some((c) => c.vector);
     if (!this.embedder || !hasVectors) return this.search(query, topK);
 
-    let qVec: number[] | null = null;
+    let qVec: number[];
     try {
       qVec = await this.embedder.embedOne(query);
     } catch {

@@ -8,13 +8,11 @@ import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { installMemoryTool } from "./memory.js";
 import { loadPlugins, type LoadedPlugin } from "./plugins.js";
-import {
-  initObservability,
-  shutdownObservability,
-} from "./observability.js";
+import { initObservability, shutdownObservability } from "./observability.js";
 import { initSecurity } from "./security.js";
 import { installGithubTools, initGithub } from "./github.js";
 import { setLocale } from "./i18n.js";
+import { initLogger } from "./logger.js";
 
 export interface ExtensionReport {
   lsp: number;
@@ -26,6 +24,7 @@ export interface ExtensionReport {
  * 初始化扩展能力：Git 工具常驻，LSP 按需启动，MCP 服务器与插件按配置加载。
  */
 export async function initExtensions(config: Config): Promise<ExtensionReport> {
+  initLogger();
   installGitTools();
   installLspTools();
   installGithubTools();
