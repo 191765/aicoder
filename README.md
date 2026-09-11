@@ -426,6 +426,60 @@ npm run release:publish   # 正式发布到 npm
 
 打 tag `v*` 时 GitHub Actions 会自动发布（需配置 `NPM_TOKEN` secret）。
 
+## 监控仪表盘
+
+网页端右上角「📊 监控仪表盘」或访问 `/dashboard`：展示调用次数、token、费用、
+按模型明细、最近调用，以及预算进度条。数据来自 `GET /api/metrics`。
+
+配置费用预算，超出时终端会告警：
+
+```json
+{ "observability": { "enabled": true, "budgetUsd": 5 } }
+```
+
+## 多用户 / 团队
+
+在 `.aicoder.json` 中配置用户的令牌、配额与工具白名单：
+
+```json
+{
+  "users": [
+    { "name": "alice", "token": "tok-alice", "quotaUsd": 5, "allowedTools": ["read_file", "search", "find_symbol"] },
+    { "name": "bob", "token": "tok-bob", "quotaUsd": 20, "allowWrite": false }
+  ]
+}
+```
+
+网页端通过 `Authorization: Bearer <token>` 识别用户：
+
+- **配额**：累计费用超出 `quotaUsd` 后拒绝新请求
+- **工具白名单**：`allowedTools` 支持 `*` 通配（如 `git_*`）
+- **写权限**：`allowWrite: false` 时该用户无法执行写操作
+- **会话隔离**：每个用户的会话自动隔离，互不可见/删除
+
+未配置用户时，`AICODER_TOKEN` 作为管理员令牌。
+
+## 工具并发
+
+一次回复中的多个只读工具调用会并发执行（上限 `AICODER_CONCURRENCY`，默认 4），
+写操作与需确认的工具仍串行，结果按原始顺序返回，兼顾速度与正确性。
+
+## VS Code 扩展
+
+`vscode-extension/` 提供基础扩展：提问、解释选中代码、修复选中代码、打开终端、启动网页版。
+
+```bash
+cd vscode-extension
+npm install
+npm run compile
+# 在 VS Code 中按 F5 启动扩展开发宿主
+```
+
+## 文档
+
+开发文档见 [`docs/`](docs/README.md)：快速开始、配置参考、插件开发、架构说明。
+示例见 [`examples/`](examples/)（插件与配置）。
+
 ## CLI 使用
 
 ```bash

@@ -55,6 +55,7 @@ export interface Config {
     enabled: boolean;
     logFile?: string;
     pricing?: Record<string, { input: number; output: number }>;
+    budgetUsd?: number;
   };
   /** 安全配置 */
   security: {
@@ -69,6 +70,16 @@ export interface Config {
   toolTimeoutMs: number;
   /** GitHub 集成 */
   github: { owner?: string; repo?: string; token?: string };
+  /** 团队多用户 */
+  users: Array<{
+    name: string;
+    token: string;
+    quotaUsd?: number;
+    allowedTools?: string[];
+    allowWrite?: boolean;
+  }>;
+  /** 只读工具并发上限 */
+  concurrency: number;
   /** UI 配置 */
   ui: { theme?: string; rich?: boolean; locale?: string };
   /** 命中的配置文件路径 */
@@ -81,7 +92,9 @@ function loadFileConfig(workdir: string): { file: FileConfig; sources: string[] 
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
-  const workdir = path.resolve(process.env.AICODER_WORKDIR ?? process.cwd());
+  const workdir = path.resolve(
+    overrides.workdir ?? process.env.AICODER_WORKDIR ?? process.cwd()
+  );
   const { file, sources } = loadFileConfig(workdir);
 
   const envRules = process.env.AICODER_PERMISSIONS
@@ -175,6 +188,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
           : (file.observability?.enabled ?? true),
       logFile: process.env.AICODER_TRACE_FILE ?? file.observability?.logFile,
       pricing: file.observability?.pricing,
+      budgetUsd: file.observability?.budgetUsd,
     },
     security: {
       blockedCommands: file.security?.blockedCommands,
@@ -201,6 +215,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       repo: process.env.AICODER_GITHUB_REPO ?? file.github?.repo,
       token: process.env.GITHUB_TOKEN ?? file.github?.token,
     },
+    users: file.users ?? [],
+    concurrency: num(process.env.AICODER_CONCURRENCY, 4),
     configSources: sources,
     ...overrides,
   };

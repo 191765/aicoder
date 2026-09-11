@@ -257,14 +257,32 @@ export class Agent {
         tool_calls: toolCalls,
       });
 
+      // ---- 计划阶段：解析参数、查找工具、做权限决策 ----
+      interface Planned {
+        call: ToolCall;
+        name: string;
+        rawArgs: string;
+        tool?: import("./tools.js").ToolDef;
+        parsed?: Record<string, unknown>;
+        // 已决定的结果（拒绝/错误）；若为空则待执行
+        decided?: { result: string; ok: boolean };
+        denyReason?: string;
+        needConfirm: boolean;
+        concurrent: boolean;
+      }
+
+      const planned: Planned[] = [];
       for (const call of toolCalls) {
         turnToolCalls++;
         const name = call.function.name;
         const rawArgs = call.function.arguments || "{}";
-        if (!this.quiet) yield { type: "tool_start", name, args: rawArgs };
-
-        let result: string;
-        let ok = true;
+        const p: Planned = {
+          call,
+          name,
+          rawArgs,
+          needConfirm: false,
+          concurrent: false,
+        };
         try {
           const tool = findTool(name);
           if (!tool) throw new Error(`未知工具: ${name}`);
@@ -277,10 +295,10 @@ export class Agent {
           } catch {
             throw new Error(`工具参数不是合法 JSON: ${rawArgs}`);
           }
+          p.tool = tool;
+          p.parsed = parsed;
 
-          // ---- 权限决策 ----
           const perm = decide(this.permissionContext(), name, parsed);
-          // 规则未命中时：写操作默认询问，只读操作默认放行
           if (!perm.rule) {
             perm.decision = tool.mutating
               ? this.config.autoApprove
@@ -293,65 +311,119 @@ export class Agent {
           }
 
           if (perm.decision === "deny") {
-            result = `该工具被权限规则拒绝：${perm.reason}`;
-            ok = false;
-            this.history.push({
-              role: "tool",
-              tool_call_id: call.id,
-              name,
-              content: result,
-            });
-            if (!this.quiet) {
-              yield { type: "tool_denied", name, reason: perm.reason };
-              yield { type: "tool_end", name, ok, result };
-            }
-            continue;
+            p.decided = {
+              result: `该工具被权限规则拒绝：${perm.reason}`,
+              ok: false,
+            };
+            p.denyReason = perm.reason;
+          } else if (perm.decision === "ask") {
+            p.needConfirm = true;
+          } else {
+            // 只读且已授权 -> 可并发
+            p.concurrent = !tool.mutating;
           }
-
-          if (perm.decision === "ask") {
-            let allow = false;
-            if (this.onConfirm) {
-              allow = await this.onConfirm(
-                `允许执行工具 ${name}?\n参数: ${rawArgs}`
-              );
-            }
-            if (!allow) {
-              result = `用户拒绝了工具 ${name} 的执行。`;
-              ok = false;
-              this.history.push({
-                role: "tool",
-                tool_call_id: call.id,
-                name,
-                content: result,
-              });
-              if (!this.quiet) {
-                yield { type: "tool_denied", name, reason: "用户拒绝" };
-                yield { type: "tool_end", name, ok, result };
-              }
-              continue;
-            }
-            this.extraAllow.add(name);
-          }
-
-          result = await this.runToolSafe(tool, parsed, toolContext, name);
         } catch (err) {
-          ok = false;
-          result = `错误: ${err instanceof Error ? err.message : String(err)}`;
+          p.decided = {
+            result: `错误: ${err instanceof Error ? err.message : String(err)}`,
+            ok: false,
+          };
+        }
+        planned.push(p);
+      }
+
+      // ---- 逐个处理 needConfirm（用户交互不可并发） ----
+      for (const p of planned) {
+        if (!p.needConfirm) continue;
+        let allow = false;
+        if (this.onConfirm) {
+          allow = await this.onConfirm(
+            `允许执行工具 ${p.name}?\n参数: ${p.rawArgs}`
+          );
+        }
+        if (allow) {
+          this.extraAllow.add(p.name);
+          // 确认后按写操作处理，仍串行执行
+          p.concurrent = false;
+        } else {
+          p.decided = {
+            result: `用户拒绝了工具 ${p.name} 的执行。`,
+            ok: false,
+          };
+          p.denyReason = "用户拒绝";
+        }
+      }
+
+      // ---- 执行阶段：只读已授权工具按并发池执行，其余串行 ----
+      const maxConc = Math.max(1, this.config.concurrency ?? 4);
+      const runnable = planned.filter((p) => !p.decided);
+      const results = new Map<Planned, { result: string; ok: boolean }>();
+      const emitOrder: Array<{ p: Planned; result: string; ok: boolean }> = [];
+
+      // 串行队列（写操作、需要确认的）与并发队列（只读）
+      const concurrentQueue = runnable.filter((p) => p.concurrent);
+      const serialQueue = runnable.filter((p) => !p.concurrent);
+
+      // 并发执行只读工具（限制并发数）
+      const runOne = async (p: Planned): Promise<{ result: string; ok: boolean }> => {
+        try {
+          const result = await this.runToolSafe(p.tool!, p.parsed!, toolContext, p.name);
+          return { result, ok: true };
+        } catch (err) {
+          return { result: `错误: ${err instanceof Error ? err.message : String(err)}`, ok: false };
+        }
+      };
+
+      const concResults = new Map<Planned, { result: string; ok: boolean }>();
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(maxConc, concurrentQueue.length) }, async () => {
+        while (cursor < concurrentQueue.length) {
+          const idx = cursor++;
+          const p = concurrentQueue[idx]!;
+          concResults.set(p, await runOne(p));
+        }
+      });
+      await Promise.all(workers);
+
+      for (const p of concurrentQueue) {
+        const r = concResults.get(p)!;
+        results.set(p, r);
+        emitOrder.push({ p, result: r.result, ok: r.ok });
+      }
+      for (const p of serialQueue) {
+        const r = await runOne(p);
+        results.set(p, r);
+        emitOrder.push({ p, result: r.result, ok: r.ok });
+      }
+
+      // ---- 按原始顺序写回历史与事件 ----
+      for (const p of planned) {
+        if (!this.quiet) yield { type: "tool_start", name: p.name, args: p.rawArgs };
+
+        if (p.decided) {
+          this.history.push({
+            role: "tool",
+            tool_call_id: p.call.id,
+            name: p.name,
+            content: p.decided.result,
+          });
+          if (!this.quiet) {
+            if (p.denyReason) {
+              yield { type: "tool_denied", name: p.name, reason: p.denyReason };
+            }
+            yield { type: "tool_end", name: p.name, ok: p.decided.ok, result: p.decided.result };
+          }
+          continue;
         }
 
+        const r = results.get(p)!;
         this.history.push({
           role: "tool",
-          tool_call_id: call.id,
-          name,
-          content: result,
+          tool_call_id: p.call.id,
+          name: p.name,
+          content: r.result,
         });
         if (!this.quiet) {
-          yield {
-            type: "tool_end",
-            name,
-            ok,
-            result: result.slice(0, 2000),
-          };
+          yield { type: "tool_end", name: p.name, ok: r.ok, result: r.result.slice(0, 2000) };
         }
       }
     }

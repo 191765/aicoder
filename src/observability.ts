@@ -48,6 +48,8 @@ const DEFAULT_PRICING: Record<string, { input: number; output: number }> = {
 let logPath: string | null = null;
 let pricing: Record<string, { input: number; output: number }> = { ...DEFAULT_PRICING };
 let usageEnabled = true;
+let budgetUsd: number | undefined;
+let budgetWarned = false;
 
 const records: UsageRecord[] = [];
 const sessionStart = Date.now();
@@ -57,6 +59,7 @@ export function initObservability(config: Config): void {
   if (config.observability?.pricing) {
     pricing = { ...DEFAULT_PRICING, ...config.observability.pricing };
   }
+  budgetUsd = config.observability?.budgetUsd;
   if (config.observability?.logFile) {
     logPath = path.isAbsolute(config.observability.logFile)
       ? config.observability.logFile
@@ -135,6 +138,16 @@ export function recordUsage(input: RecordUsageInput): UsageRecord {
   };
   records.push(rec);
   trace({ type: "usage", ...rec });
+  if (budgetUsd !== undefined && !budgetWarned) {
+    const total = records.reduce((s, r) => s + r.costUsd, 0);
+    if (total >= budgetUsd) {
+      budgetWarned = true;
+      trace({ type: "budget_exceeded", budgetUsd, total });
+      process.stderr.write(
+        `\n[预算告警] 累计费用 $${total.toFixed(4)} 已超出预算 $${budgetUsd}\n`
+      );
+    }
+  }
   return rec;
 }
 
@@ -168,6 +181,25 @@ export function getUsage(): UsageSummary {
 
 export function resetUsage(): void {
   records.length = 0;
+  budgetWarned = false;
+}
+
+/** 供监控仪表盘使用的汇总指标 */
+export function getMetrics(): {
+  usage: UsageSummary;
+  budgetUsd?: number;
+  budgetExceeded: boolean;
+  sessionDurationMs: number;
+  recent: UsageRecord[];
+} {
+  const usage = getUsage();
+  return {
+    usage,
+    budgetUsd,
+    budgetExceeded: budgetUsd !== undefined && usage.costUsd >= budgetUsd,
+    sessionDurationMs: sessionDurationMs(),
+    recent: records.slice(-50).reverse(),
+  };
 }
 
 export function usageEnabledStatus(): boolean {

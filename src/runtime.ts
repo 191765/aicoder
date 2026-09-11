@@ -2,6 +2,10 @@ import type { Config } from "./config.js";
 import { installMcpServers, closeMcpServers } from "./mcp.js";
 import { installLspTools, setLspServers, closeLspClients } from "./lsp.js";
 import { installGitTools } from "./git.js";
+import { installSubagentTool } from "./subagent.js";
+import { installOrchestratorTools } from "./orchestrator.js";
+import { installSymbolTools } from "./symbols.js";
+import { installMemoryTool } from "./memory.js";
 import { loadPlugins, type LoadedPlugin } from "./plugins.js";
 import {
   initObservability,
@@ -24,6 +28,10 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   installGitTools();
   installLspTools();
   installGithubTools();
+  installSubagentTool();
+  installOrchestratorTools();
+  installSymbolTools();
+  installMemoryTool();
   initGithub(config);
   setLocale(config.ui?.locale);
   initObservability(config);

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/191765/aicoder/main/aicoder.schema.json",
+  "model": "deepseek-chat",
+  "baseURL": "https://api.deepseek.com/v1",
+  "autoApprove": false,
+  "permissions": {
+    "allow": ["read_file", "list_dir", "glob", "search", "find_symbol", "find_references"],
+    "ask": ["write_file", "edit_file", "run_command"],
+    "deny": ["run_command(rm -rf|format )"]
+  },
+  "context": {
+    "maxContextTokens": 65536,
+    "keepRecentMessages": 10
+  },
+  "plugins": ["./examples/plugins/hello.mjs"],
+  "lspServers": {
+    "typescript": { "command": "typescript-language-server", "args": ["--stdio"] }
+  },
+  "observability": {
+    "enabled": true,
+    "budgetUsd": 5
+  },
+  "ui": {
+    "theme": "dark",
+    "rich": true,
+    "locale": "zh"
+  }
+}

@@ -6,3 +6,8 @@ dist/
 .DS_Store
 aicoder.index.json
 .aicoder/
+coverage/
+.nyc_output/
+*.vsix
+vscode-extension/out/
+vscode-extension/node_modules/

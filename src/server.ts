@@ -27,6 +27,8 @@ export async function startServer(): Promise<void> {
     config.tokenGenerated = true;
   }
   const sessions = new Map<string, Session>();
+  const { createUserRegistry } = await import("./users.js");
+  const users = createUserRegistry(config);
 
   const { initExtensions } = await import("./runtime.js");
   try {
@@ -41,7 +43,7 @@ export async function startServer(): Promise<void> {
 
   const server = http.createServer(async (req, res) => {
     try {
-      await handle(req, res, config, sessions);
+      await handle(req, res, config, sessions, users);
     } catch (err) {
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(`服务器错误: ${err instanceof Error ? err.message : String(err)}`);
@@ -59,63 +61,74 @@ export async function startServer(): Promise<void> {
   });
 }
 
-function checkToken(
-  req: http.IncomingMessage,
-  url: URL,
-  expected: string
-): boolean {
-  if (!expected) return true;
+type UserRegistry = Awaited<ReturnType<typeof import("./users.js").createUserRegistry>>;
+
+function extractToken(req: http.IncomingMessage, url: URL): string {
   const header = req.headers["authorization"] ?? "";
   const bearer = typeof header === "string" && header.startsWith("Bearer ")
     ? header.slice(7)
     : "";
-  return bearer === expected || url.searchParams.get("token") === expected;
+  return bearer || url.searchParams.get("token") || "";
 }
 
 async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   config: ReturnType<typeof loadConfig>,
-  sessions: Map<string, Session>
+  sessions: Map<string, Session>,
+  users: UserRegistry
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   const { pathname } = url;
+
+  const token = extractToken(req, url);
+  const user = users.identify(token, config.token || undefined);
+  const authorized = Boolean(user) || !config.token;
 
   if (pathname === "/api/health") {
     return json(res, 200, { ok: true, model: config.model });
   }
 
   if (pathname === "/api/chat" && req.method === "POST") {
-    if (!checkToken(req, url, config.token)) {
+    if (!authorized) {
       return json(res, 401, { error: "未授权：无效的 token" });
     }
-    return handleChat(req, res, config, sessions);
+    return handleChat(req, res, config, sessions, user, users);
   }
 
   // ---- 会话 API ----
   if (pathname === "/api/sessions" && req.method === "GET") {
-    if (!checkToken(req, url, config.token)) {
+    if (!authorized) {
       return json(res, 401, { error: "未授权" });
     }
     const { listSessions } = await import("./session.js");
-    return json(res, 200, { sessions: await listSessions() });
+    const all = await listSessions();
+    const prefix = user && !user.isAdmin ? `${user.name}__` : "";
+    const scoped = user && !user.isAdmin ? all.filter((s) => s.id.startsWith(prefix)) : all;
+    return json(res, 200, { sessions: scoped });
   }
 
   if (pathname === "/api/sessions" && req.method === "DELETE") {
-    if (!checkToken(req, url, config.token)) {
+    if (!authorized) {
       return json(res, 401, { error: "未授权" });
     }
     const id = url.searchParams.get("id") ?? "";
+    if (user && !user.isAdmin && !id.startsWith(`${user.name}__`)) {
+      return json(res, 403, { error: "无权删除该会话" });
+    }
     const { deleteSession } = await import("./session.js");
     const ok = id ? await deleteSession(id) : false;
     return json(res, 200, { ok });
   }
 
   if (pathname.startsWith("/api/sessions/") && req.method === "GET") {
-    if (!checkToken(req, url, config.token)) {
+    if (!authorized) {
       return json(res, 401, { error: "未授权" });
     }
     const id = decodeURIComponent(pathname.slice("/api/sessions/".length));
+    if (user && !user.isAdmin && !id.startsWith(`${user.name}__`)) {
+      return json(res, 403, { error: "无权访问该会话" });
+    }
     const { loadSession } = await import("./session.js");
     const s = await loadSession(id);
     if (!s) return json(res, 404, { error: "会话不存在" });
@@ -123,11 +136,24 @@ async function handle(
   }
 
   if (pathname === "/api/usage" && req.method === "GET") {
-    if (!checkToken(req, url, config.token)) {
+    if (!authorized) {
       return json(res, 401, { error: "未授权" });
     }
     const obs = await import("./observability.js");
     return json(res, 200, obs.getUsage());
+  }
+
+  if (pathname === "/api/metrics" && req.method === "GET") {
+    if (!authorized) {
+      return json(res, 401, { error: "未授权" });
+    }
+    const obs = await import("./observability.js");
+    const metrics = obs.getMetrics();
+    return json(res, 200, { ...metrics, users: user?.isAdmin ? users.listUsers() : undefined });
+  }
+
+  if (pathname === "/dashboard" && req.method === "GET") {
+    return serveStatic("dashboard.html", res);
   }
 
   // 静态文件
@@ -179,7 +205,9 @@ async function handleChat(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   config: ReturnType<typeof loadConfig>,
-  sessions: Map<string, Session>
+  sessions: Map<string, Session>,
+  user: Awaited<ReturnType<UserRegistry["identify"]>>,
+  users: UserRegistry
 ): Promise<void> {
   const body = await readBody(req);
   let payload: {
@@ -197,10 +225,33 @@ async function handleChat(
   const message = (payload.message ?? "").trim();
   if (!message) return json(res, 400, { error: "缺少 message" });
 
-  const approvedTools = new Set(payload.approvedTools ?? []);
-  const allowWrite = payload.allowWrite !== false;
+  // 配额检查
+  if (user?.quotaUsd !== undefined && users.spent(user.name) >= user.quotaUsd) {
+    return json(res, 429, {
+      error: `配额已用尽（$${users.spent(user.name).toFixed(4)} / $${user.quotaUsd}）`,
+    });
+  }
 
-  const sessionId = payload.sessionId || Math.random().toString(36).slice(2);
+  const approvedTools = new Set(payload.approvedTools ?? []);
+  // 用户是否允许写操作：全局开关 + 用户配置
+  const requestAllowWrite = payload.allowWrite !== false;
+  const allowWrite = requestAllowWrite && (user?.allowWrite ?? true);
+
+  // 会话按用户隔离
+  const rawId = payload.sessionId || Math.random().toString(36).slice(2);
+  const sessionId = user && !user.isAdmin ? `${user.name}__${rawId}` : rawId;
+
+  // 工具白名单 -> 排除不在白名单内的工具
+  let excludeTools: Set<string> | undefined;
+  if (user?.allowedTools && user.allowedTools.length) {
+    const { tools: allTools } = await import("./tools.js");
+    const allowed = new Set(
+      allTools
+        .map((t) => t.name)
+        .filter((n) => users.toolAllowed(user, n))
+    );
+    excludeTools = new Set(allTools.map((t) => t.name).filter((n) => !allowed.has(n)));
+  }
 
   return new Promise<void>((resolve) => {
     res.writeHead(200, {
@@ -225,6 +276,7 @@ async function handleChat(
           extraAllow,
           sessionId,
           persist: true,
+          excludeTools,
           onConfirm: async (question) => {
             const name = question.match(/工具 (\S+)/)?.[1] ?? "";
             if (extraAllow.has(name)) return true;

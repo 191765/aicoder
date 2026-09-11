@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AICoder · 监控仪表盘</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  body { overflow: auto; }
+  .dash { max-width: 960px; margin: 0 auto; padding: 28px; }
+  .dash h1 { font-size: 22px; margin-bottom: 4px; }
+  .dash .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+  .card.warn { border-color: var(--danger); }
+  .card.warn .value { color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .bar { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .bar.warn > div { background: var(--danger); }
+  a.back { color: var(--accent); font-size: 13px; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="dash">
+  <a class="back" href="/">← 返回对话</a>
+  <h1>AICoder 监控仪表盘</h1>
+  <div class="sub" id="sub">加载中...</div>
+
+  <div class="cards">
+    <div class="card"><div class="label">调用次数</div><div class="value" id="calls">-</div></div>
+    <div class="card"><div class="label">总 tokens</div><div class="value" id="tokens">-</div></div>
+    <div class="card" id="costCard"><div class="label">累计费用</div><div class="value" id="cost">-</div></div>
+    <div class="card"><div class="label">会话时长</div><div class="value" id="duration">-</div></div>
+  </div>
+
+  <div id="budgetBox" style="display:none; margin-bottom: 20px;">
+    <div class="label" style="color: var(--muted); font-size: 12px;" id="budgetLabel"></div>
+    <div class="bar" id="budgetBar"><div style="width:0%"></div></div>
+  </div>
+
+  <h2 style="font-size: 16px; margin-bottom: 8px;">按模型</h2>
+  <table>
+    <thead><tr><th>模型</th><th>次数</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>
+    <tbody id="byModel"></tbody>
+  </table>
+
+  <h2 style="font-size: 16px; margin: 24px 0 8px;">最近调用</h2>
+  <table>
+    <thead><tr><th>时间</th><th>模型</th><th>输入</th><th>输出</th><th>费用</th><th>耗时</th></tr></thead>
+    <tbody id="recent"></tbody>
+  </table>
+</div>
+<script>
+  const token = localStorage.getItem("aicoder.token") || new URLSearchParams(location.search).get("token") || "";
+  const fmtDuration = (ms) => {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m}分${s % 60}秒` : `${s}秒`;
+  };
+  async function load() {
+    try {
+      const res = await fetch("/api/metrics", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) { document.getElementById("sub").textContent = "未授权或无法加载（检查令牌）"; return; }
+      const m = await res.json();
+      const u = m.usage;
+      document.getElementById("sub").textContent = `模型 ${u.byModel ? Object.keys(u.byModel).length : 0} 个 · 实时统计`;
+      document.getElementById("calls").textContent = u.calls;
+      document.getElementById("tokens").textContent = u.totalTokens.toLocaleString();
+      document.getElementById("cost").textContent = "$" + u.costUsd.toFixed(4);
+      document.getElementById("duration").textContent = fmtDuration(m.sessionDurationMs);
+
+      if (m.budgetUsd) {
+        document.getElementById("budgetBox").style.display = "block";
+        const pct = Math.min(100, (u.costUsd / m.budgetUsd) * 100);
+        document.getElementById("budgetLabel").textContent = `预算 $${m.budgetUsd} · 已用 ${pct.toFixed(1)}%`;
+        const bar = document.getElementById("budgetBar");
+        bar.firstElementChild.style.width = pct + "%";
+        if (m.budgetExceeded) {
+          bar.classList.add("warn");
+          document.getElementById("costCard").classList.add("warn");
+        }
+      }
+
+      const byModel = document.getElementById("byModel");
+      byModel.innerHTML = "";
+      for (const [model, v] of Object.entries(u.byModel || {})) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td></td><td>${v.calls}</td><td>${v.inputTokens}</td><td>${v.outputTokens}</td><td>$${v.costUsd.toFixed(4)}</td>`;
+        tr.children[0].textContent = model;
+        byModel.appendChild(tr);
+      }
+
+      const recent = document.getElementById("recent");
+      recent.innerHTML = "";
+      for (const r of m.recent || []) {
+        const tr = document.createElement("tr");
+        const t = new Date(r.ts).toLocaleTimeString();
+        tr.innerHTML = `<td>${t}</td><td>${r.model}</td><td>${r.inputTokens}</td><td>${r.outputTokens}</td><td>$${r.costUsd.toFixed(4)}</td><td>${r.durationMs}ms</td>`;
+        recent.appendChild(tr);
+      }
+    } catch (e) {
+      document.getElementById("sub").textContent = "加载失败: " + e.message;
+    }
+  }
+  load();
+  setInterval(load, 5000);
+</script>
+</body>
+</html>

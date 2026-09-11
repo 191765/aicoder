@@ -64,6 +64,8 @@ export interface FileConfig {
     logFile?: string;
     /** 自定义价格表：每千 token 美元 */
     pricing?: Record<string, { input: number; output: number }>;
+    /** 费用预算（美元），超出时告警 */
+    budgetUsd?: number;
   };
   /** 安全配置 */
   security?: {
@@ -87,6 +89,14 @@ export interface FileConfig {
     repo?: string;
     token?: string;
   };
+  /** 团队多用户 */
+  users?: Array<{
+    name: string;
+    token: string;
+    quotaUsd?: number;
+    allowedTools?: string[];
+    allowWrite?: boolean;
+  }>;
   /** 默认主题等 UI 配置 */
   ui?: {
     theme?: string;

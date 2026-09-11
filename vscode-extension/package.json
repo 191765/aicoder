@@ -1,0 +1,62 @@
+{
+  "name": "aicoder-vscode",
+  "displayName": "AICoder",
+  "description": "开源 AI 编程助手 - 在 VS Code 中使用 AICoder",
+  "version": "0.1.0",
+  "publisher": "191765",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "aicoder.ask",
+        "title": "AICoder: 提问"
+      },
+      {
+        "command": "aicoder.explainSelection",
+        "title": "AICoder: 解释选中代码"
+      },
+      {
+        "command": "aicoder.fixSelection",
+        "title": "AICoder: 修复选中代码"
+      },
+      {
+        "command": "aicoder.startWeb",
+        "title": "AICoder: 启动网页版"
+      },
+      {
+        "command": "aicoder.terminal",
+        "title": "AICoder: 打开终端对话"
+      }
+    ],
+    "configuration": {
+      "title": "AICoder",
+      "properties": {
+        "aicoder.command": {
+          "type": "string",
+          "default": "npx @191765/aicoder",
+          "description": "启动 AICoder 的命令"
+        },
+        "aicoder.useTui": {
+          "type": "boolean",
+          "default": false,
+          "description": "终端对话是否使用富交互 TUI"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.6.3"
+  }
+}
