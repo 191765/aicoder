@@ -101,6 +101,16 @@ const rememberTool: ToolDef = {
     const entry = `- (${stamp}) ${content.replace(/\n+/g, " ")}\n`;
     const existing = header ? header : await fs.readFile(file, "utf8").catch(() => "");
     await fs.writeFile(file, existing + entry, "utf8");
+
+    // 同步写入结构化记忆存储（供语义检索）
+    try {
+      const { getMemoryStore } = await import("./memory-store.js");
+      const store = await getMemoryStore(ctx.config);
+      await store.add(content, { source: "remember" });
+    } catch {
+      /* 忽略 */
+    }
+
     return `已记录到 ${MEMORY_FILE}`;
   },
 };

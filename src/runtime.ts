@@ -8,12 +8,15 @@ import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { installSnapshotTools } from "./snapshots.js";
 import { installFeedbackTool } from "./feedback.js";
+import { installVerifyTool } from "./verify.js";
+import { installVectorTools } from "./vector-store.js";
 import { installMemoryTool } from "./memory.js";
 import { loadPlugins, type LoadedPlugin } from "./plugins.js";
 import { initObservability, shutdownObservability } from "./observability.js";
 import { initSecurity } from "./security.js";
 import { initSandbox } from "./sandbox.js";
 import { initTelemetry } from "./telemetry.js";
+import { initBudget } from "./budget.js";
 import { installGithubTools, initGithub } from "./github.js";
 import { setLocale } from "./i18n.js";
 import { initLogger } from "./logger.js";
@@ -38,6 +41,8 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   installEditEngine();
   installSnapshotTools();
   installFeedbackTool();
+  installVerifyTool();
+  installVectorTools();
   installMemoryTool();
   initGithub(config);
   setLocale(config.ui?.locale);
@@ -45,6 +50,7 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   initSecurity(config);
   initSandbox(config);
   await initTelemetry(config);
+  initBudget(config);
 
   let lsp = 0;
   if (config.lspServers && Object.keys(config.lspServers).length) {

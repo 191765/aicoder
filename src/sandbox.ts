@@ -91,10 +91,10 @@ export function wrapCommand(command: string): SandboxCommand {
       maxOutputBytes: sandbox.maxOutputBytes,
     };
   }
-
   const shell = isWin ? "powershell.exe" : "/bin/sh";
-  const args = isWin ? ["-NoProfile", "-NonInteractive", "-Command", command] : ["-c", command];
-
+  const args = isWin
+    ? ["-NoProfile", "-NonInteractive", "-Command", `${command}; exit $LASTEXITCODE`]
+    : ["-c", command];
   return {
     shell,
     args,

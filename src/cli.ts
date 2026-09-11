@@ -32,6 +32,9 @@ function printHelp(): void {
   aicoder workflows          列出可用工作流
   aicoder snapshots          列出编辑快照
   aicoder rollback <id>      回滚到指定快照
+  aicoder checkpoint [label] 创建检查点（会话+文件）
+  aicoder checkpoints        列出检查点
+  aicoder replay <id>        回放到指定检查点
   aicoder doctor             环境自检（模型/依赖/本地服务）
   aicoder plugin search [q]  搜索/安装/卸载插件
   aicoder eval [--baseline]  运行评估基准并检测回归
@@ -164,6 +167,60 @@ async function main(): Promise<void> {
 
   if (args[0] === "feedback") {
     await runFeedback(args.slice(1));
+    return;
+  }
+
+  if (args[0] === "checkpoints" || args[0] === "cps") {
+    const { listCheckpoints } = await import("./checkpoint.js");
+    const config = loadConfig();
+    const list = await listCheckpoints(config.workdir);
+    if (!list.length) {
+      console.log("(暂无检查点)");
+      return;
+    }
+    for (const c of list) {
+      console.log(
+        `${C.cyan}${c.id}${C.reset}  ${C.dim}${new Date(c.ts).toLocaleString()}  ${c.label}  ${c.messageCount} 条${C.reset}`
+      );
+    }
+    return;
+  }
+
+  if (args[0] === "checkpoint") {
+    const { createCheckpoint, recentFiles } = await import("./checkpoint.js");
+    const { listSessions, loadSession } = await import("./session.js");
+    const config = loadConfig();
+    const label = args.slice(1).join(" ") || "manual";
+    const list = await listSessions();
+    const latest = list[0];
+    const messages = latest ? ((await loadSession(latest.id))?.messages ?? []) : [];
+    const files = await recentFiles(config.workdir, 30);
+    const cp = await createCheckpoint(config.workdir, label, messages, latest?.id, files);
+    console.log(`${C.green}已创建检查点 ${cp.id}（${label}）${C.reset}`);
+    console.log(
+      `${C.dim}会话: ${latest?.id ?? "(无)"}  文件: ${files.length}  消息: ${messages.length}${C.reset}`
+    );
+    console.log(`${C.dim}回放: aicoder replay ${cp.id}${C.reset}`);
+    return;
+  }
+
+  if (args[0] === "replay") {
+    const { replayCheckpoint } = await import("./checkpoint.js");
+    const config = loadConfig();
+    const id = args[1];
+    if (!id) {
+      console.error(`${C.red}用法: aicoder replay <checkpoint-id>${C.reset}`);
+      process.exit(1);
+    }
+    try {
+      const r = await replayCheckpoint(config.workdir, id);
+      console.log(
+        `${C.green}已回放检查点 ${id}：恢复 ${r.restored} 个文件，删除 ${r.removed} 个，会话 ${r.messages.length} 条${C.reset}`
+      );
+    } catch (err) {
+      console.error(`${C.red}${err instanceof Error ? err.message : err}${C.reset}`);
+      process.exit(1);
+    }
     return;
   }
 

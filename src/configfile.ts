@@ -123,6 +123,15 @@ export interface FileConfig {
     enabled?: boolean;
     endpoint?: string;
   };
+  /** 预算强制 */
+  budget?: {
+    sessionUsd?: number;
+    globalUsd?: number;
+  };
+  /** 自验证命令 */
+  verify?: {
+    commands?: string[];
+  };
   /** 默认主题等 UI 配置 */
   ui?: {
     theme?: string;

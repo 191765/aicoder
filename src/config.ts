@@ -93,6 +93,10 @@ export interface Config {
   webhookToken?: string;
   /** 匿名遥测（默认关闭） */
   telemetry: { enabled: boolean; endpoint?: string };
+  /** 预算强制 */
+  costBudget: { sessionUsd?: number; globalUsd?: number };
+  /** 自验证命令 */
+  verify: { commands?: string[] };
   /** 只读工具并发上限 */
   concurrency: number;
   /** UI 配置 */
@@ -259,6 +263,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
           ? bool(process.env.AICODER_TELEMETRY, false)
           : (file.telemetry?.enabled ?? false),
       endpoint: process.env.AICODER_TELEMETRY_ENDPOINT ?? file.telemetry?.endpoint,
+    },
+    costBudget: {
+      sessionUsd: file.budget?.sessionUsd ?? undefined,
+      globalUsd: file.budget?.globalUsd ?? undefined,
+    },
+    verify: {
+      commands: file.verify?.commands,
     },
     configSources: sources,
     configIssues: issues,

@@ -14,6 +14,8 @@ import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
 import { installSnapshotTools } from "./snapshots.js";
 import { installFeedbackTool } from "./feedback.js";
+import { installVerifyTool } from "./verify.js";
+import { installVectorTools } from "./vector-store.js";
 import { ModelRouter } from "./router.js";
 import { log } from "./logger.js";
 import { startSpan } from "./tracing.js";
@@ -47,6 +49,10 @@ export interface AgentOptions {
   sessionId?: string;
   /** 是否启用持久化（默认 sessionId 存在时启用） */
   persist?: boolean;
+  /** 所属用户（用于用户级预算/配额） */
+  user?: string;
+  /** 用户费用配额（美元） */
+  userQuotaUsd?: number;
 }
 
 const SYSTEM_PROMPT = `你是 AICoder，一个开源 AI 编程助手，运行在用户的开发环境中。
@@ -82,6 +88,8 @@ export class Agent {
   private persist: boolean;
   private createdAt: number;
   private summaryText?: string;
+  private user?: string;
+  private userQuotaUsd?: number;
 
   constructor(opts: AgentOptions) {
     installSubagentTool();
@@ -93,6 +101,8 @@ export class Agent {
     installEditEngine();
     installSnapshotTools();
     installFeedbackTool();
+    installVerifyTool();
+    installVectorTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);
@@ -105,6 +115,8 @@ export class Agent {
     this.sessionId = opts.sessionId;
     this.persist = opts.persist ?? Boolean(opts.sessionId);
     this.createdAt = Date.now();
+    this.user = opts.user;
+    this.userQuotaUsd = opts.userQuotaUsd;
   }
 
   /** 载入已有历史（恢复会话） */
@@ -216,6 +228,19 @@ export class Agent {
             .join(" ");
     this.history.push({ role: "user", content: userInput });
 
+    // 预算预检：已超支则直接拒绝，避免继续产生费用
+    try {
+      const { isOverBudget } = await import("./budget.js");
+      const over = isOverBudget();
+      if (over.over) {
+        yield { type: "error", message: `预算已超支，已阻止本次请求：${over.reason ?? ""}` };
+        yield { type: "done" };
+        return;
+      }
+    } catch {
+      /* 预算未初始化则忽略 */
+    }
+
     const activeProvider = this.providerFor(inputText);
     const turnStart = Date.now();
     let turnOutput = "";
@@ -242,6 +267,17 @@ export class Agent {
         if (mem.conventions) memoryContext = mem.conventions;
       } catch {
         /* 忽略记忆读取失败 */
+      }
+      // 分层记忆检索：注入与当前输入相关的项目记忆
+      try {
+        const { getMemoryStore } = await import("./memory-store.js");
+        const store = await getMemoryStore(this.config);
+        const relevant = await store.formatForPrompt(inputText, 5);
+        if (relevant) {
+          memoryContext += (memoryContext ? "\n\n" : "") + relevant;
+        }
+      } catch {
+        /* 忽略 */
       }
       if (this.config.autoSummary && !this.summaryText) {
         try {
@@ -553,7 +589,7 @@ export class Agent {
     try {
       const model = (provider as { model?: string }).model ?? this.config.model;
       void import("./observability.js").then((obs) => {
-        obs.recordUsage({
+        const rec = obs.recordUsage({
           model,
           messages: this.history.slice(baseLen - 1),
           outputText: output,
@@ -561,6 +597,14 @@ export class Agent {
           steps,
           toolCalls,
         });
+        // 预算强制：记录即扣费，超支抛出（由上层捕获转为错误）
+        void import("./budget.js")
+          .then((b) => {
+            b.chargeBudget(model, rec.inputTokens, rec.outputTokens, this.user, this.userQuotaUsd);
+          })
+          .catch((err) => {
+            if (err instanceof Error) log.warn("budget.exceeded", { error: err.message });
+          });
       });
     } catch {
       /* 统计失败不影响主流程 */

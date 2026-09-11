@@ -726,6 +726,54 @@ npm run site    # 生成静态站点到 site/
 
 推送到 `main` 后由 GitHub Actions 自动部署到 GitHub Pages。
 
+## 预算强制
+
+除展示外，预算是**强制执行**的，可实时阻断超支请求：
+
+```json
+{ "budget": { "sessionUsd": 0.5, "globalUsd": 5 } }
+```
+
+配合多用户的 `quotaUsd`，在会话/全局/用户三个层面拦截。
+
+## 自验证回路
+
+`verify` 工具运行项目测试/构建并返回结构化结果，便于修改后自检与迭代修复：
+
+```json
+{ "verify": { "commands": ["npm test"] } }
+```
+
+## 分层记忆
+
+- 短时记忆：当前会话要点
+- 长时记忆：`.aicoder/memory.json` 结构化条目，支持向量/关键词检索
+- 约定文件：`AGENTS.md`、`.aicoder/memory.md` 人工维护
+
+`remember` 会同时写入约定文件与结构化记忆，检索时按相关性注入。
+
+## 本地向量库
+
+内置轻量向量存储（`.aicoder/vectors.json`），默认使用本地哈希嵌入，**无需外部服务**；
+提供 `semantic_search` 工具做语义检索，也可注入外部 embedding 提升效果。
+
+## 检查点与回放
+
+```bash
+aicoder checkpoint "重构前"   # 保存会话 + 最近文件快照
+aicoder checkpoints           # 列出
+aicoder replay <id>           # 回放到该时间点（恢复文件与会话）
+```
+
+## Agent 协议（A2A 风格）
+
+```bash
+curl http://localhost:8787/api/agent/card
+curl -X POST http://localhost:8787/api/agent/tasks \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"input":"统计 src 下的文件数","useRag":false}'
+```
+
 ## CLI 使用
 
 ```bash

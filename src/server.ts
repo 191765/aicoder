@@ -205,6 +205,21 @@ async function handle(
     return handleWebhook(req, res, config);
   }
 
+  // ---- Agent 协议（A2A 风格）----
+  if (pathname === "/api/agent/card" && req.method === "GET") {
+    const { buildAgentCard } = await import("./agent-protocol.js");
+    const { currentVersion } = await import("./upgrade.js");
+    const { tools } = await import("./tools.js");
+    return json(res, 200, buildAgentCard(config, tools.length, currentVersion()));
+  }
+
+  if (pathname === "/api/agent/tasks" && req.method === "POST") {
+    if (!authorized) {
+      return json(res, 401, { error: "未授权" });
+    }
+    return handleAgentTask(req, res, config);
+  }
+
   // 静态文件
   if (req.method === "GET") {
     return serveStatic(pathname, res);
@@ -323,6 +338,8 @@ async function handleChat(
           sessionId,
           persist: true,
           excludeTools,
+          user: user?.name,
+          userQuotaUsd: user?.quotaUsd,
           onConfirm: async (question) => {
             const name = question.match(/工具 (\S+)/)?.[1] ?? "";
             if (extraAllow.has(name)) return true;
@@ -382,6 +399,70 @@ async function handleChat(
         resolve();
       }
     })();
+  });
+}
+
+/**
+ * Agent 协议：提交任务并返回结构化结果（同步简化版）。
+ */
+async function handleAgentTask(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: ReturnType<typeof loadConfig>
+): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+  } catch {
+    return json(res, 400, { error: "请求体必须为 JSON" });
+  }
+  const { normalizeTask } = await import("./agent-protocol.js");
+  const task = normalizeTask(body);
+  if (!task.input.trim()) {
+    return json(res, 400, { error: "缺少 input" });
+  }
+  const { Agent } = await import("./agent.js");
+  const agent = new Agent({
+    config: { ...config, autoApprove: task.allowWrite === true },
+    useRag: Boolean(task.useRag),
+    persist: false,
+    quiet: true,
+  });
+  const toolCalls: string[] = [];
+  let output = "";
+  let steps = 0;
+  try {
+    for await (const ev of agent.chat(task.input)) {
+      if (ev.type === "text") output += ev.delta;
+      else if (ev.type === "tool_end") toolCalls.push(ev.name);
+      else if (ev.type === "step") steps = ev.index;
+      else if (ev.type === "error") {
+        return json(res, 200, {
+          id: task.id ?? `task-${Date.now()}`,
+          status: "failed",
+          output,
+          toolCalls,
+          steps,
+          error: ev.message,
+        });
+      }
+    }
+  } catch (err) {
+    return json(res, 200, {
+      id: task.id ?? `task-${Date.now()}`,
+      status: "failed",
+      output,
+      toolCalls,
+      steps,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  json(res, 200, {
+    id: task.id ?? `task-${Date.now()}`,
+    status: "completed",
+    output,
+    toolCalls,
+    steps,
   });
 }
 

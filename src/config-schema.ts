@@ -61,6 +61,12 @@ const TOP_LEVEL: Record<string, FieldSpec> = {
   ui: { type: "object", optional: true },
   github: { type: "object", optional: true },
   users: { type: "array", optional: true },
+  cache: { type: "object", optional: true },
+  fallbackModels: { type: "array", optional: true },
+  sandbox: { type: "object", optional: true },
+  telemetry: { type: "object", optional: true },
+  budget: { type: "object", optional: true },
+  verify: { type: "object", optional: true },
 };
 
 function typeOf(v: unknown): FieldType | "unknown" {
