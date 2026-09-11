@@ -20,15 +20,79 @@ export class OpenAICompatProvider implements Provider {
   readonly model: string;
   private temperature: number;
   private maxTokens: number;
+  private maxRetries: number;
+  private baseDelayMs: number;
 
   constructor(cfg: Config) {
     this.client = new OpenAI({
       apiKey: cfg.apiKey || "not-needed",
       baseURL: cfg.baseURL,
+      maxRetries: 0,
     });
     this.model = cfg.model;
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
+    this.maxRetries = cfg.retry?.maxRetries ?? 3;
+    this.baseDelayMs = cfg.retry?.baseDelayMs ?? 500;
+  }
+
+  private isRetryable(err: unknown): boolean {
+    const e = err as { status?: number; code?: string; message?: string };
+    if (!e.status) return true; // 网络类错误
+    return (
+      e.status === 429 ||
+      e.status === 500 ||
+      e.status === 502 ||
+      e.status === 503 ||
+      e.status === 504
+    );
+  }
+
+  private async sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          clearTimeout(t);
+          reject(new Error("aborted"));
+        }, { once: true });
+      }
+    });
+  }
+
+  private async createStream(
+    messages: ChatMessage[],
+    tools: ToolSchema[],
+    signal?: AbortSignal
+  ): Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return (await this.client.chat.completions.create(
+          {
+            model: this.model,
+            messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+            tools: tools.length
+              ? (tools as OpenAI.Chat.Completions.ChatCompletionTool[])
+              : undefined,
+            temperature: this.temperature,
+            max_tokens: this.maxTokens,
+            stream: true,
+          },
+          { signal }
+        )) as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+      } catch (err) {
+        lastErr = err;
+        if (attempt >= this.maxRetries || !this.isRetryable(err)) break;
+        const delay = this.baseDelayMs * Math.pow(2, attempt);
+        try {
+          await this.sleep(delay, signal);
+        } catch {
+          break;
+        }
+      }
+    }
+    throw lastErr;
   }
 
   async *stream(
@@ -40,19 +104,7 @@ export class OpenAICompatProvider implements Provider {
 
     let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
     try {
-      stream = (await this.client.chat.completions.create(
-        {
-          model: this.model,
-          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-          tools: tools.length
-            ? (tools as OpenAI.Chat.Completions.ChatCompletionTool[])
-            : undefined,
-          temperature: this.temperature,
-          max_tokens: this.maxTokens,
-          stream: true,
-        },
-        { signal }
-      )) as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+      stream = await this.createStream(messages, tools, signal);
     } catch (err) {
       yield { type: "error", message: toErrorMessage(err) };
       return;

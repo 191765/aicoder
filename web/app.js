@@ -19,6 +19,35 @@ let sessionId = localStorage.getItem("aicoder.session") || "";
 let token = localStorage.getItem("aicoder.token") || "";
 let busy = false;
 
+/* ---- 轻量 i18n ---- */
+const I18N = {
+  zh: {
+    newChat: "＋ 新对话", rag: "代码库检索 (RAG)", write: "允许写操作（改文件/执行命令）",
+    history: "历史会话", send: "发送", ready: "就绪",
+    placeholder: "描述你的需求，例如：帮我修复这个 bug / 解释这段代码 / 写一个测试",
+    hint: "Enter 发送 · Shift+Enter 换行 · 写操作默认拦截，需勾选「允许写操作」",
+  },
+  en: {
+    newChat: "＋ New chat", rag: "Codebase search (RAG)", write: "Allow writes (edit files / run commands)",
+    history: "History", send: "Send", ready: "Ready",
+    placeholder: "Describe what you need, e.g. fix this bug / explain this code / write a test",
+    hint: "Enter to send · Shift+Enter for newline · writes blocked until allowed",
+  },
+};
+let lang = (navigator.language || "zh").toLowerCase().startsWith("en") ? "en" : "zh";
+function applyI18n() {
+  const L = I18N[lang];
+  const q = (id) => document.getElementById(id);
+  if (q("newChat")) q("newChat").textContent = L.newChat;
+  if (q("ragToggle")) q("ragToggle").parentElement.querySelector("span").textContent = L.rag;
+  if (q("writeToggle")) q("writeToggle").parentElement.querySelector("span").textContent = L.write;
+  document.querySelectorAll(".section-title").forEach((el) => (el.textContent = L.history));
+  if (q("send")) q("send").textContent = L.send;
+  if (q("input")) q("input").placeholder = L.placeholder;
+  const hint = document.querySelector(".hint");
+  if (hint) hint.textContent = L.hint;
+}
+
 els.tokenInput.value = token;
 if (window.location.search.includes("token=")) {
   const t = new URLSearchParams(window.location.search).get("token");
@@ -373,6 +402,7 @@ els.saveToken.addEventListener("click", () => {
 fetch("/api/health").then((r) => r.json()).then((d) => {
   els.modelInfo.textContent = `模型：${d.model}`;
   setStatus("就绪");
+  applyI18n();
   refreshSessions();
   refreshUsage();
 }).catch(() => {

@@ -63,8 +63,14 @@ export interface Config {
     redactSecrets: boolean;
     auditLog?: string;
   };
+  /** 重试配置 */
+  retry: { maxRetries: number; baseDelayMs: number };
+  /** 单个工具执行超时（毫秒） */
+  toolTimeoutMs: number;
+  /** GitHub 集成 */
+  github: { owner?: string; repo?: string; token?: string };
   /** UI 配置 */
-  ui: { theme?: string; rich?: boolean };
+  ui: { theme?: string; rich?: boolean; locale?: string };
   /** 命中的配置文件路径 */
   configSources: string[];
 }
@@ -160,6 +166,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     ui: {
       theme: process.env.AICODER_THEME ?? file.ui?.theme,
       rich: file.ui?.rich,
+      locale: process.env.AICODER_LANG ?? file.ui?.locale,
     },
     observability: {
       enabled:
@@ -177,6 +184,22 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
           : (file.security?.secretScan ?? true),
       redactSecrets: file.security?.redactSecrets ?? false,
       auditLog: process.env.AICODER_AUDIT_LOG ?? file.security?.auditLog,
+    },
+    retry: {
+      maxRetries: num(
+        process.env.AICODER_MAX_RETRIES,
+        file.retry?.maxRetries ?? 3
+      ),
+      baseDelayMs: num(
+        process.env.AICODER_RETRY_DELAY_MS,
+        file.retry?.baseDelayMs ?? 500
+      ),
+    },
+    toolTimeoutMs: num(process.env.AICODER_TOOL_TIMEOUT_MS, 120000),
+    github: {
+      owner: process.env.AICODER_GITHUB_OWNER ?? file.github?.owner,
+      repo: process.env.AICODER_GITHUB_REPO ?? file.github?.repo,
+      token: process.env.GITHUB_TOKEN ?? file.github?.token,
     },
     configSources: sources,
     ...overrides,

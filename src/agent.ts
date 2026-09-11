@@ -12,6 +12,8 @@ import { installSubagentTool } from "./subagent.js";
 import { installGitTools } from "./git.js";
 import { installLspTools } from "./lsp.js";
 import { installOrchestratorTools } from "./orchestrator.js";
+import { installMemoryTool } from "./memory.js";
+import { installSymbolTools } from "./symbols.js";
 import { ModelRouter } from "./router.js";
 
 export type AgentEvent =
@@ -79,6 +81,8 @@ export class Agent {
     installGitTools();
     installLspTools();
     installOrchestratorTools();
+    installMemoryTool();
+    installSymbolTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);
@@ -190,7 +194,17 @@ export class Agent {
     if (this.useRag && this.index) {
       ragContext = await this.index.formatContextAsync(userInput, 6, 6000);
     }
-    const system = this.buildSystem(ragContext);
+    let memoryContext = "";
+    if (!this.quiet) {
+      try {
+        const { loadProjectMemory } = await import("./memory.js");
+        const mem = await loadProjectMemory(this.config);
+        if (mem.conventions) memoryContext = mem.conventions;
+      } catch {
+        /* 忽略记忆读取失败 */
+      }
+    }
+    const system = this.buildSystem(ragContext, memoryContext);
 
     for (let step = 0; step < this.config.maxSteps; step++) {
       turnSteps = step + 1;
@@ -319,7 +333,7 @@ export class Agent {
             this.extraAllow.add(name);
           }
 
-          result = await tool.run(parsed, toolContext);
+          result = await this.runToolSafe(tool, parsed, toolContext, name);
         } catch (err) {
           ok = false;
           result = `错误: ${err instanceof Error ? err.message : String(err)}`;
@@ -380,20 +394,43 @@ export class Agent {
     }
   }
 
-  private buildSystem(ragContext: string): string {
+  /** 执行工具，带超时与错误捕获 */
+  private async runToolSafe(
+    tool: { run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string> },
+    parsed: Record<string, unknown>,
+    ctx: ToolContext,
+    name: string
+  ): Promise<string> {
+    const timeout = this.config.toolTimeoutMs ?? 120_000;
+    if (!timeout) return tool.run(parsed, ctx);
+    let timer: NodeJS.Timeout;
+    const guard = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(`错误: 工具 ${name} 执行超时 (${timeout}ms)`), timeout);
+    });
+    try {
+      return await Promise.race([tool.run(parsed, ctx), guard]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
+  private buildSystem(ragContext: string, memoryContext = ""): string {
+    const memoryBlock = memoryContext
+      ? `\n\n以下是本项目的约定与记忆，请务必遵循：\n\n${memoryContext}`
+      : "";
     if (this.systemPromptOverride) {
       return this.systemPromptOverride
         .replace("{WORKDIR}", this.config.workdir)
         .replace("{OS}", process.platform)
-        .replace("{RAG_CONTEXT}", ragContext);
+        .replace("{RAG_CONTEXT}", ragContext + memoryBlock);
     }
     return SYSTEM_PROMPT.replace("{WORKDIR}", this.config.workdir)
       .replace("{OS}", process.platform)
       .replace(
         "{RAG_CONTEXT}",
-        ragContext
+        (ragContext
           ? `以下是代码库检索到的相关片段，可作为参考：\n\n${ragContext}`
-          : ""
+          : "") + memoryBlock
       );
   }
 }

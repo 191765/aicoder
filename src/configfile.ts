@@ -74,11 +74,26 @@ export interface FileConfig {
     /** 审计日志文件 */
     auditLog?: string;
   };
+  /** 重试与限流 */
+  retry?: {
+    /** 失败最大重试次数 */
+    maxRetries?: number;
+    /** 退避基数毫秒 */
+    baseDelayMs?: number;
+  };
+  /** GitHub 集成 */
+  github?: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+  };
   /** 默认主题等 UI 配置 */
   ui?: {
     theme?: string;
     /** 是否启用 TUI，false 时用简单 CLI */
     rich?: boolean;
+    /** 语言：zh | en */
+    locale?: string;
   };
 }
 

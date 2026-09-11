@@ -8,6 +8,8 @@ import {
   shutdownObservability,
 } from "./observability.js";
 import { initSecurity } from "./security.js";
+import { installGithubTools, initGithub } from "./github.js";
+import { setLocale } from "./i18n.js";
 
 export interface ExtensionReport {
   lsp: number;
@@ -21,6 +23,9 @@ export interface ExtensionReport {
 export async function initExtensions(config: Config): Promise<ExtensionReport> {
   installGitTools();
   installLspTools();
+  installGithubTools();
+  initGithub(config);
+  setLocale(config.ui?.locale);
   initObservability(config);
   initSecurity(config);
 

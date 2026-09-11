@@ -362,7 +362,69 @@ export default {
 ## Web 界面
 
 网页端支持多会话管理：左侧「历史会话」可查看、切换、删除；对话自动保存并可恢复。
-代码块中的 diff 会高亮显示（`+` 绿 / `-` 红 / `@@` 紫）。
+代码块中的 diff 会高亮显示（`+` 绿 / `-` 红 / `@@` 紫）。界面语言会根据浏览器自动选择中/英。
+
+## 项目记忆
+
+自动读取项目约定并注入系统提示，让助手遵循你的项目规范：
+
+- `AGENTS.md` / `CLAUDE.md`（根目录约定）
+- `.aicoder/memory.md`（沉淀记忆）
+- `.aicoder/notes/*.md`（分主题笔记）
+
+助手可通过 `remember` 工具把结论写入 `.aicoder/memory.md`，跨会话保留。
+
+## 代码智能（符号索引）
+
+内置轻量符号索引（无需语言服务器），支持跨文件查找：
+
+- `find_symbol`：查找函数/类/接口/变量等定义位置（支持子串匹配）
+- `find_references`：查找符号在所有文件中的引用
+
+与 LSP 工具互补：无语言服务器时用符号索引，配置了 LSP 时可用更精确的语义能力。
+
+## GitHub 工作流
+
+配置 `github.owner` / `github.repo` 与 `GITHUB_TOKEN`（或安装并登录 `gh` CLI）后可用：
+
+- `github_pr_view`：查看 PR 信息与 diff，辅助代码审查
+- `github_issue_view`：查看 Issue 详情
+- `github_ci_logs`：拉取 CI 失败日志，便于定位并修复
+
+## 性能与稳定性
+
+- **自动重试**：对 429/5xx 与网络错误按指数退避重试（`AICODER_MAX_RETRIES`、`AICODER_RETRY_DELAY_MS`）。
+- **工具超时**：单个工具执行超时保护（`AICODER_TOOL_TIMEOUT_MS`）。
+- **并发编排**：`parallel` 工具并发运行子代理，缩短长任务耗时。
+
+## 国际化
+
+通过 `AICODER_LANG`（`zh` / `en`）或 `.aicoder.json` 的 `ui.locale` 设置语言。
+网页端根据浏览器语言自动切换。
+
+## Docker 部署
+
+```bash
+docker build -t aicoder .
+docker run -it --rm \
+  -p 8787:8787 \
+  -e AICODER_API_KEY=sk-xxx \
+  -e AICODER_BASE_URL=https://api.openai.com/v1 \
+  -v "$PWD:/workspace" \
+  -v aicoder-data:/data \
+  aicoder
+```
+
+默认启动网页版，工作目录为 `/workspace`，会话/配置存放在 `/data`。
+
+## 发布流程
+
+```bash
+npm run release           # 校验 + 构建 + 测试 + 打包预览
+npm run release:publish   # 正式发布到 npm
+```
+
+打 tag `v*` 时 GitHub Actions 会自动发布（需配置 `NPM_TOKEN` secret）。
 
 ## CLI 使用
 
