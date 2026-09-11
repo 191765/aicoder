@@ -156,6 +156,16 @@ async function runTurn(agent: Agent, text: string): Promise<void> {
           );
           wroteText = false;
           break;
+        case "tool_denied":
+          if (wroteText) process.stdout.write("\n");
+          wroteText = false;
+          console.log(`${C.red}⛔ ${ev.name} 被拒绝：${ev.reason}${C.reset}`);
+          break;
+        case "context":
+          console.log(
+            `${C.dim}… 上下文已压缩（约 ${ev.tokens} tokens，省略 ${ev.dropped} 条）${C.reset}`
+          );
+          break;
         case "error":
           console.error(`\n${C.red}错误: ${ev.message}${C.reset}`);
           break;

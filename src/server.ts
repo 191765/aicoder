@@ -12,6 +12,7 @@ const WEB_DIR = path.resolve(__dirname, "..", "web");
 
 interface Session {
   agent: Agent;
+  extraAllow: Set<string>;
 }
 
 async function main(): Promise<void> {
@@ -167,12 +168,15 @@ async function handleChat(
     void (async () => {
       let session = sessions.get(sessionId);
       if (!session) {
+        const extraAllow = new Set<string>(approvedTools);
         const agent = new Agent({
-          config: { ...config, autoApprove: allowWrite && config.autoApprove },
+          // allowWrite 表示本会话批准写操作（ask -> allow）；deny 规则始终优先
+          config: { ...config, autoApprove: allowWrite },
           useRag: Boolean(payload.useRag),
+          extraAllow,
           onConfirm: async (question) => {
             const name = question.match(/工具 (\S+)/)?.[1] ?? "";
-            if (approvedTools.has(name)) return true;
+            if (extraAllow.has(name)) return true;
             send({ type: "confirm", name, question });
             return false;
           },
@@ -187,8 +191,13 @@ async function handleChat(
             });
           }
         }
-        session = { agent };
+        session = { agent, extraAllow };
         sessions.set(sessionId, session);
+      } else {
+        for (const t of approvedTools) {
+          session.extraAllow.add(t);
+          session.agent.allowTool(t);
+        }
       }
 
       req.on("close", () => {

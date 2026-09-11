@@ -8,4 +8,21 @@ export { tools, toolSchemas, findTool } from "./tools.js";
 export type { ToolDef, ToolContext } from "./tools.js";
 export { CodeIndex } from "./rag.js";
 export type { SearchHit, Chunk } from "./rag.js";
+export {
+  decide,
+  parseRule,
+  parseRules,
+  extractArgText,
+  type PermissionDecision,
+  type PermissionRule,
+  type PermissionResult,
+} from "./permissions.js";
+export {
+  buildContext,
+  estimateTokens,
+  historyTokens,
+  summarizeToolResult,
+  DEFAULT_BUDGET,
+  type ContextBudget,
+} from "./context.js";
 export type { ChatMessage, ToolCall, ToolResult, StreamEvent } from "./types.js";

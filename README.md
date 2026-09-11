@@ -68,6 +68,48 @@ npx @191765/aicoder --help        # 查看帮助
 | `AICODER_PORT` | 网页端口 | `8787` |
 | `AICODER_TOKEN` | 网页访问令牌 | 自动生成 |
 | `AICODER_AUTO_APPROVE` | 自动批准写操作 | `false` |
+| `AICODER_PERMISSIONS` | 权限规则（见下） | 只读放行 / 写询问 |
+| `AICODER_MAX_CONTEXT_TOKENS` | 上下文窗口预算 | `32768` |
+| `AICODER_RESERVE_TOKENS` | 为输出预留 token | `4096` |
+| `AICODER_KEEP_RECENT` | 至少保留最近消息数 | `8` |
+| `AICODER_TOOL_RESULT_MAX_CHARS` | 工具结果摘要阈值 | `4000` |
+
+### 权限规则
+
+规则格式：`动作:工具名(参数正则)`
+
+- 动作：`allow`（放行）/ `ask`（询问）/ `deny`（拒绝）
+- 工具名支持 `*` 通配
+- 括号内为可选的参数匹配（对 `run_command` 匹配命令、对文件工具匹配路径）
+- 优先级：`deny` > `ask` > `allow`；未命中时只读工具放行，写操作询问
+- 多条用 `;` 或换行分隔
+
+```dotenv
+AICODER_PERMISSIONS="deny:run_command(rm -rf|format |del /f);allow:read_file;ask:write_file"
+```
+
+也可在项目根目录放 `.aicoder.json` 做更结构化的配置（会与 `.env` 合并，`.env` 优先）：
+
+```json
+{
+  "model": "deepseek-chat",
+  "permissions": {
+    "allow": ["read_file", "list_dir", "glob", "search"],
+    "ask": ["write_file", "edit_file"],
+    "deny": ["run_command(rm -rf|format )"]
+  },
+  "context": {
+    "maxContextTokens": 65536,
+    "keepRecentMessages": 10
+  }
+}
+```
+
+### 上下文管理
+
+长对话超出预算时，AICoder 会自动裁剪较早的历史，只保留 `system` 提示与最近若干条消息，
+并对超长的工具结果做首尾摘要。裁剪发生时终端 / 网页会给出提示。这避免了长会话因
+上下文超限而报错。
 
 常见模型配置示例：
 

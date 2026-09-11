@@ -197,6 +197,12 @@ function handleEvent(ev, asst, toolMap, getTool, setTool) {
       setStatus("思考中...");
       break;
     }
+    case "tool_denied":
+      addNotice(asst.root, `工具 ${ev.name} 被权限规则拒绝：${ev.reason}`);
+      break;
+    case "context":
+      addNotice(asst.root, `上下文已压缩：约 ${ev.tokens} tokens，省略 ${ev.dropped} 条历史`);
+      break;
     case "confirm":
       setStatus(`等待授权: ${ev.name}`);
       addNotice(asst.root, `工具 ${ev.name} 需要授权，请勾选「允许写操作」后重试。`);
