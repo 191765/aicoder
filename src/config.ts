@@ -84,19 +84,29 @@ export interface Config {
   ui: { theme?: string; rich?: boolean; locale?: string };
   /** 命中的配置文件路径 */
   configSources: string[];
+  /** 配置校验问题 */
+  configIssues: Array<{ path: string; message: string; severity: "error" | "warning" }>;
+  /** 配置迁移说明 */
+  configMigrations: string[];
+  /** 项目摘要开关 */
+  autoSummary: boolean;
 }
 
-function loadFileConfig(workdir: string): { file: FileConfig; sources: string[] } {
-  const { config, sources } = loadLayeredConfig(workdir);
-  return { file: config, sources };
+function loadFileConfig(workdir: string): {
+  file: FileConfig;
+  sources: string[];
+  issues: Array<{ path: string; message: string; severity: "error" | "warning" }>;
+  migrations: string[];
+} {
+  const { config, sources, issues, migrations } = loadLayeredConfig(workdir);
+  return { file: config, sources, issues, migrations };
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const workdir = path.resolve(
     overrides.workdir ?? process.env.AICODER_WORKDIR ?? process.cwd()
   );
-  const { file, sources } = loadFileConfig(workdir);
-
+  const { file, sources, issues, migrations } = loadFileConfig(workdir);
   const envRules = process.env.AICODER_PERMISSIONS
     ? process.env.AICODER_PERMISSIONS.split(/\n/)
     : [];
@@ -218,6 +228,12 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     users: file.users ?? [],
     concurrency: num(process.env.AICODER_CONCURRENCY, 4),
     configSources: sources,
+    configIssues: issues,
+    configMigrations: migrations,
+    autoSummary:
+      process.env.AICODER_SUMMARY !== undefined
+        ? bool(process.env.AICODER_SUMMARY, true)
+        : true,
     ...overrides,
   };
   // 派生字段归一化：若覆盖了 permissionRules 但未显式覆盖 rules，则重新解析

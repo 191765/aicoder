@@ -59,6 +59,16 @@ export async function startServer(): Promise<void> {
       console.log("（未设置 AICODER_TOKEN，已自动生成临时令牌；可在 .env 中固定）");
     }
   });
+
+  // WebSocket 实时通道
+  try {
+    const { attachRealtime } = await import("./realtime.js");
+    attachRealtime(server, config, config.token, (token) =>
+      Boolean(users.identify(token, config.token || undefined)) || !config.token
+    );
+  } catch (err) {
+    console.error("实时通道启动失败:", err instanceof Error ? err.message : err);
+  }
 }
 
 type UserRegistry = Awaited<ReturnType<typeof import("./users.js").createUserRegistry>>;
@@ -69,6 +79,21 @@ function extractToken(req: http.IncomingMessage, url: URL): string {
     ? header.slice(7)
     : "";
   return bearer || url.searchParams.get("token") || "";
+}
+
+/** 将文本与图片组装成多模态内容 */
+function buildUserContent(
+  message: string,
+  images: Array<{ dataUrl?: string; url?: string }>
+): string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> {
+  const valid = images
+    .map((i) => i.dataUrl || i.url || "")
+    .filter((u) => u.startsWith("data:image") || u.startsWith("http"));
+  if (!valid.length) return message;
+  return [
+    { type: "text" as const, text: message },
+    ...valid.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+  ];
 }
 
 async function handle(
@@ -216,6 +241,7 @@ async function handleChat(
     useRag?: boolean;
     allowWrite?: boolean;
     approvedTools?: string[];
+    images?: Array<{ dataUrl?: string; url?: string }>;
   } = {};
   try {
     payload = JSON.parse(body) as typeof payload;
@@ -318,7 +344,8 @@ async function handleChat(
       });
 
       try {
-        for await (const ev of session.agent.chat(message)) {
+        const content = buildUserContent(message, payload.images ?? []);
+        for await (const ev of session.agent.chat(content)) {
           send(ev);
           if (ev.type === "done" || ev.type === "error") {
             if (ev.type === "done") {

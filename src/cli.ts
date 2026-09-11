@@ -99,6 +99,13 @@ async function main(): Promise<void> {
 
   console.log(`${C.bold}${C.cyan}AICoder${C.reset} ${C.dim}开源 AI 编程助手${C.reset}`);
   console.log(`${C.dim}模型: ${config.model}  工作目录: ${config.workdir}${C.reset}`);
+  for (const m of config.configMigrations ?? []) {
+    console.log(`${C.yellow}配置迁移: ${m}${C.reset}`);
+  }
+  for (const issue of config.configIssues ?? []) {
+    const color = issue.severity === "error" ? C.red : C.yellow;
+    console.log(`${color}配置${issue.severity === "error" ? "错误" : "警告"}: ${issue.path} - ${issue.message}${C.reset}`);
+  }
 
   const { initExtensions, shutdownExtensions } = await import("./runtime.js");
   const ext = await initExtensions(config);

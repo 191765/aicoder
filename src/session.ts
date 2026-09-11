@@ -111,7 +111,13 @@ export async function deleteSession(id: string): Promise<boolean> {
 export function deriveTitle(messages: ChatMessage[]): string {
   const first = messages.find((m) => m.role === "user" && m.content);
   if (!first?.content) return "(空会话)";
-  const t = first.content.replace(/\s+/g, " ").trim();
+  const text =
+    typeof first.content === "string"
+      ? first.content
+      : first.content
+          .map((p) => (p.type === "text" ? p.text : "[图片]"))
+          .join(" ");
+  const t = text.replace(/\s+/g, " ").trim();
   return t.length > 40 ? t.slice(0, 40) + "…" : t;
 }
 

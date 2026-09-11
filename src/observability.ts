@@ -71,6 +71,19 @@ export function shutdownObservability(): void {
   /* 目前无需要关闭的资源，保留钩子 */
 }
 
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        const part = p as { type?: string; text?: string };
+        return part.type === "text" ? part.text ?? "" : "[图片]";
+      })
+      .join(" ");
+  }
+  return "";
+}
+
 function priceFor(model: string): { input: number; output: number } {
   // 前缀匹配，如 gpt-4o-2024-xx 命中 gpt-4o
   const keys = Object.keys(pricing).sort((a, b) => b.length - a.length);
@@ -109,7 +122,7 @@ export function trace(event: TraceEvent): void {
 
 export interface RecordUsageInput {
   model: string;
-  messages: Array<{ content: string | null }>;
+  messages: Array<{ content: string | import("./types.js").ContentPart[] | null }>;
   outputText: string;
   durationMs: number;
   steps: number;
@@ -122,7 +135,7 @@ export interface RecordUsageInput {
 export function recordUsage(input: RecordUsageInput): UsageRecord {
   const inputTokens =
     input.providerInputTokens ??
-    input.messages.reduce((s, m) => s + estimateTokens(m.content ?? ""), 0) + 4;
+    input.messages.reduce((s, m) => s + estimateTokens(contentToText(m.content)), 0) + 4;
   const outputTokens =
     input.providerOutputTokens ?? estimateTokens(input.outputText);
   const costUsd = estimateCost(input.model, inputTokens, outputTokens);

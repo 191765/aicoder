@@ -4,6 +4,7 @@ import os from "node:os";
 import type { ContextBudget } from "./context.js";
 import type { McpServerConfig } from "./mcp.js";
 import type { LspServerConfig } from "./lsp.js";
+import { validateConfig, migrateConfig, type ValidationIssue } from "./config-schema.js";
 
 /**
  * 层级配置
@@ -111,6 +112,10 @@ export interface LayeredConfig {
   config: FileConfig;
   /** 命中的配置文件路径（从低到高） */
   sources: string[];
+  /** 配置校验问题 */
+  issues: ValidationIssue[];
+  /** 执行的迁移说明 */
+  migrations: string[];
 }
 
 function configHome(): string {
@@ -167,6 +172,8 @@ export function mergeConfig<T extends Record<string, unknown>>(
 
 export function loadLayeredConfig(workdir: string): LayeredConfig {
   const sources: string[] = [];
+  const issues: ValidationIssue[] = [];
+  const migrations: string[] = [];
   let merged: FileConfig = {};
 
   const candidates = [
@@ -175,17 +182,23 @@ export function loadLayeredConfig(workdir: string): LayeredConfig {
   ];
 
   for (const p of candidates) {
-    const cfg = tryRead(p);
-    if (cfg) {
-      merged = mergeConfig(
-        merged as Record<string, unknown>,
-        cfg as Record<string, unknown>
-      ) as FileConfig;
-      sources.push(p);
+    const raw = tryRead(p);
+    if (!raw) continue;
+    // 迁移
+    const migrated = migrateConfig(raw as Record<string, unknown>);
+    for (const m of migrated.migrations) migrations.push(`${p}: ${m}`);
+    // 校验
+    for (const issue of validateConfig(migrated.config)) {
+      issues.push({ ...issue, path: issue.path ? `${p}#${issue.path}` : p });
     }
+    merged = mergeConfig(
+      merged as Record<string, unknown>,
+      migrated.config as Record<string, unknown>
+    ) as FileConfig;
+    sources.push(p);
   }
 
-  return { config: merged, sources };
+  return { config: merged, sources, issues, migrations };
 }
 
 /** 将 permissions 对象形式 { allow: [], ask: [], deny: [] } 转为规则文本 */

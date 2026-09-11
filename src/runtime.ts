@@ -5,6 +5,7 @@ import { installGitTools } from "./git.js";
 import { installSubagentTool } from "./subagent.js";
 import { installOrchestratorTools } from "./orchestrator.js";
 import { installSymbolTools } from "./symbols.js";
+import { installEditEngine } from "./editer.js";
 import { installMemoryTool } from "./memory.js";
 import { loadPlugins, type LoadedPlugin } from "./plugins.js";
 import {
@@ -31,6 +32,7 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   installSubagentTool();
   installOrchestratorTools();
   installSymbolTools();
+  installEditEngine();
   installMemoryTool();
   initGithub(config);
   setLocale(config.ui?.locale);

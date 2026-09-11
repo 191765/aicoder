@@ -13,7 +13,120 @@ const els = {
   saveToken: document.getElementById("saveToken"),
   sessionList: document.getElementById("sessionList"),
   usage: document.getElementById("usage"),
+  stop: document.getElementById("stop"),
+  fileInput: document.getElementById("fileInput"),
+  attachments: document.getElementById("attachments"),
 };
+
+/* ---- 图片附件 ---- */
+let pendingImages = [];
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+let sseAbort = null;
+
+els.fileInput?.addEventListener("change", async () => {
+  const files = Array.from(els.fileInput.files || []);
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (f.size > MAX_IMAGE_BYTES) {
+      setStatus(`图片过大已跳过: ${f.name}`);
+      continue;
+    }
+    const dataUrl = await fileToDataUrl(f);
+    pendingImages.push({ name: f.name, dataUrl });
+  }
+  els.fileInput.value = "";
+  renderAttachments();
+});
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function renderAttachments() {
+  if (!els.attachments) return;
+  els.attachments.innerHTML = "";
+  pendingImages.forEach((img, i) => {
+    const chip = document.createElement("div");
+    chip.className = "attach-chip";
+    const thumb = document.createElement("img");
+    thumb.src = img.dataUrl;
+    const x = document.createElement("button");
+    x.textContent = "×";
+    x.addEventListener("click", () => { pendingImages.splice(i, 1); renderAttachments(); });
+    chip.appendChild(thumb);
+    chip.appendChild(x);
+    els.attachments.appendChild(chip);
+  });
+}
+
+function clearImages() {
+  pendingImages = [];
+  renderAttachments();
+}
+
+/* ---- WebSocket 实时通道（不可用时回退 SSE） ---- */
+let ws = null;
+let wsReady = null;
+let wsTurnResolve = null;
+let wsAsst = null;
+let wsToolMap = null;
+let wsCurrentTool = null;
+
+function wsSend(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function ensureSocket() {
+  if (wsReady) return wsReady;
+  wsReady = new Promise((resolve) => {
+    try {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const q = token ? `?token=${encodeURIComponent(token)}` : "";
+      const socket = new WebSocket(`${proto}//${location.host}/ws${q}`);
+      const timer = setTimeout(() => { resolve(false); }, 3000);
+      socket.onopen = () => { clearTimeout(timer); ws = socket; resolve(true); };
+      socket.onerror = () => { clearTimeout(timer); resolve(false); };
+      socket.onclose = () => { ws = null; wsReady = null; };
+      socket.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+        onWsEvent(ev);
+      };
+    } catch {
+      resolve(false);
+    }
+  });
+  return wsReady;
+}
+
+function onWsEvent(ev) {
+  if (ev.type === "confirm") {
+    const allow = window.confirm(`授权请求：${ev.question}\n\n允许执行吗？`);
+    wsSend({ type: "confirm_result", id: ev.id, allow });
+    return;
+  }
+  if (ev.type === "aborted") {
+    setStatus("已中断");
+    if (wsTurnResolve) { wsTurnResolve(); wsTurnResolve = null; }
+    return;
+  }
+  if (ev.type === "end") {
+    if (wsTurnResolve) { wsTurnResolve(); wsTurnResolve = null; }
+    refreshSessions();
+    refreshUsage();
+    return;
+  }
+  // 转发给当前回合的渲染器
+  if (wsAsst) {
+    handleEvent(ev, wsAsst, wsToolMap || new Map(),
+      () => wsCurrentTool, (d) => { wsCurrentTool = d; });
+  }
+}
 
 let sessionId = localStorage.getItem("aicoder.session") || "";
 let token = localStorage.getItem("aicoder.token") || "";
@@ -161,60 +274,88 @@ async function sendMessage(text) {
   if (busy) return;
   busy = true;
   els.send.disabled = true;
+  els.stop.style.display = "inline-block";
   addUser(text);
   const asst = addAssistant();
   const toolMap = new Map();
   setStatus("思考中...");
 
+  const useWs = await ensureSocket();
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
+    if (useWs) {
+      wsAsst = asst;
+      wsToolMap = toolMap;
+      wsSend({
+        type: "chat",
         message: text,
         sessionId,
         useRag: els.ragToggle.checked,
         allowWrite: els.writeToggle.checked,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      asst.content.textContent = `请求失败: ${err.error || res.status}`;
-      asst.content.classList.remove("cursor");
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let currentTool = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop();
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith("data:")) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-        handleEvent(ev, asst, toolMap, () => currentTool, (d) => { currentTool = d; });
-      }
+        images: pendingImages.map((i) => ({ dataUrl: i.dataUrl })),
+      });
+      // 事件由 ws.onmessage 处理；这里等待完成信号
+      await new Promise((resolve) => { wsTurnResolve = resolve; });
+      wsAsst = null;
+      wsToolMap = null;
+    } else {
+      await sendMessageSse(text, asst, toolMap);
     }
   } catch (err) {
     asst.content.textContent += `\n[连接错误] ${err.message}`;
   } finally {
+    clearImages();
     asst.content.classList.remove("cursor");
     busy = false;
     els.send.disabled = false;
+    els.stop.style.display = "none";
     setStatus("就绪");
     els.input.focus();
+  }
+}
+
+async function sendMessageSse(text, asst, toolMap) {
+  sseAbort = new AbortController();
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    signal: sseAbort.signal,
+    body: JSON.stringify({
+      message: text,
+      sessionId,
+      useRag: els.ragToggle.checked,
+      allowWrite: els.writeToggle.checked,
+      images: pendingImages.map((i) => ({ dataUrl: i.dataUrl })),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    asst.content.textContent = `请求失败: ${err.error || res.status}`;
+    asst.content.classList.remove("cursor");
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let currentTool = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data:")) continue;
+      let ev;
+      try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+      handleEvent(ev, asst, toolMap, () => currentTool, (d) => { currentTool = d; });
+    }
   }
 }
 
@@ -397,6 +538,14 @@ els.saveToken.addEventListener("click", () => {
   token = els.tokenInput.value.trim();
   localStorage.setItem("aicoder.token", token);
   setStatus("令牌已保存");
+});
+
+els.stop?.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    wsSend({ type: "abort" });
+  }
+  if (sseAbort) sseAbort.abort();
+  setStatus("已请求中断");
 });
 
 fetch("/api/health").then((r) => r.json()).then((d) => {

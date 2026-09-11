@@ -39,7 +39,15 @@ export function estimateTokens(text: string): number {
 }
 
 export function messageTokens(msg: ChatMessage): number {
-  let total = estimateTokens(msg.content ?? "");
+  let total = 0;
+  if (typeof msg.content === "string") {
+    total = estimateTokens(msg.content);
+  } else if (Array.isArray(msg.content)) {
+    for (const part of msg.content) {
+      if (part.type === "text") total += estimateTokens(part.text);
+      else if (part.type === "image_url") total += 1000; // 图片粗略估算
+    }
+  }
   if (msg.tool_calls) {
     for (const tc of msg.tool_calls) {
       total += estimateTokens(tc.function.name);
@@ -100,8 +108,12 @@ export function buildContext(
 
   // 先对历史中的工具结果做长度压缩（不改变消息数量）
   const normalized = history.map((m) => {
-    if (m.role === "tool" && (m.content?.length ?? 0) > budget.toolResultMaxChars) {
-      return { ...m, content: summarizeToolResult(m.content ?? "", budget.toolResultMaxChars) };
+    if (
+      m.role === "tool" &&
+      typeof m.content === "string" &&
+      m.content.length > budget.toolResultMaxChars
+    ) {
+      return { ...m, content: summarizeToolResult(m.content, budget.toolResultMaxChars) };
     }
     return m;
   });
@@ -168,12 +180,19 @@ function dropDanglingTools(messages: ChatMessage[]): ChatMessage[] {
  */
 export function summarizeHistory(messages: ChatMessage[]): string {
   const lines: string[] = [];
+  const asText = (c: ChatMessage["content"]): string => {
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) {
+      return c.map((p) => (p.type === "text" ? p.text : "[图片]")).join(" ");
+    }
+    return "";
+  };
   for (const m of messages) {
     if (m.role === "user") {
-      const t = (m.content ?? "").replace(/\s+/g, " ").slice(0, 120);
+      const t = asText(m.content).replace(/\s+/g, " ").slice(0, 120);
       if (t) lines.push(`- 用户: ${t}`);
     } else if (m.role === "assistant" && m.content) {
-      const t = m.content.replace(/\s+/g, " ").slice(0, 120);
+      const t = asText(m.content).replace(/\s+/g, " ").slice(0, 120);
       if (t) lines.push(`- 助手: ${t}`);
     } else if (m.role === "assistant" && m.tool_calls?.length) {
       const names = m.tool_calls.map((tc) => tc.function.name).join(", ");

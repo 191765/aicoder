@@ -45,8 +45,14 @@
 
     <main id="main">
       <div id="messages"></div>
+      <div id="attachments" class="attachments"></div>
       <form id="composer">
+        <label class="attach-btn" title="添加图片">
+          <input type="file" id="fileInput" accept="image/*" multiple hidden />
+          📎
+        </label>
         <textarea id="input" rows="1" placeholder="描述你的需求，例如：帮我修复这个 bug / 解释这段代码 / 写一个测试"></textarea>
+        <button type="button" id="stop" class="stop" style="display:none">停止</button>
         <button type="submit" id="send">发送</button>
       </form>
       <div class="hint">Enter 发送 · Shift+Enter 换行 · 写操作默认拦截，需勾选「允许写操作」</div>

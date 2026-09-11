@@ -1,8 +1,14 @@
 export type Role = "system" | "user" | "assistant" | "tool";
 
+/** 多模态内容块 */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+
 export interface ChatMessage {
   role: Role;
-  content: string | null;
+  /** 纯文本，或多模态内容块数组 */
+  content: string | ContentPart[] | null;
   /** assistant 消息中发起的工具调用 */
   tool_calls?: ToolCall[];
   /** role=tool 时对应的调用 id */

@@ -1,0 +1,264 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AICoder 配置",
+  "type": "object",
+  "properties": {
+    "$version": {
+      "type": "number",
+      "description": "配置版本"
+    },
+    "model": {
+      "type": "string"
+    },
+    "baseURL": {
+      "type": "string"
+    },
+    "apiKey": {
+      "type": "string"
+    },
+    "temperature": {
+      "type": "number"
+    },
+    "maxTokens": {
+      "type": "number"
+    },
+    "maxSteps": {
+      "type": "number"
+    },
+    "autoApprove": {
+      "type": "boolean"
+    },
+    "permissions": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "maxContextTokens": {
+          "type": "number"
+        },
+        "reserveForOutput": {
+          "type": "number"
+        },
+        "keepRecentMessages": {
+          "type": "number"
+        },
+        "toolResultMaxChars": {
+          "type": "number"
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "match": {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              }
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "temperature": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "model"
+        ]
+      }
+    },
+    "embeddings": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "mcpServers": {
+      "type": "object"
+    },
+    "lspServers": {
+      "type": "object"
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "blockedCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "secretScan": {
+          "type": "boolean"
+        },
+        "redactSecrets": {
+          "type": "boolean"
+        },
+        "auditLog": {
+          "type": "string"
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "logFile": {
+          "type": "string"
+        },
+        "budgetUsd": {
+          "type": "number"
+        },
+        "pricing": {
+          "type": "object"
+        }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "properties": {
+        "maxRetries": {
+          "type": "number",
+          "minimum": 0
+        },
+        "baseDelayMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": [
+            "dark",
+            "light",
+            "plain"
+          ]
+        },
+        "rich": {
+          "type": "boolean"
+        },
+        "locale": {
+          "type": "string",
+          "enum": [
+            "zh",
+            "en"
+          ]
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        }
+      }
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "quotaUsd": {
+            "type": "number"
+          },
+          "allowedTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowWrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "token"
+        ]
+      }
+    }
+  }
+}

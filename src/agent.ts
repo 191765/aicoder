@@ -14,6 +14,7 @@ import { installLspTools } from "./lsp.js";
 import { installOrchestratorTools } from "./orchestrator.js";
 import { installMemoryTool } from "./memory.js";
 import { installSymbolTools } from "./symbols.js";
+import { installEditEngine } from "./editer.js";
 import { ModelRouter } from "./router.js";
 
 export type AgentEvent =
@@ -75,6 +76,7 @@ export class Agent {
   private sessionId?: string;
   private persist: boolean;
   private createdAt: number;
+  private summaryText?: string;
 
   constructor(opts: AgentOptions) {
     installSubagentTool();
@@ -83,6 +85,7 @@ export class Agent {
     installOrchestratorTools();
     installMemoryTool();
     installSymbolTools();
+    installEditEngine();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);
@@ -173,10 +176,20 @@ export class Agent {
     return p;
   }
 
-  async *chat(userInput: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
+  async *chat(
+    userInput: string | import("./types.js").ContentPart[],
+    signal?: AbortSignal
+  ): AsyncGenerator<AgentEvent> {
+    const inputText =
+      typeof userInput === "string"
+        ? userInput
+        : userInput
+            .filter((p): p is { type: "text"; text: string } => p.type === "text")
+            .map((p) => p.text)
+            .join(" ");
     this.history.push({ role: "user", content: userInput });
 
-    const activeProvider = this.providerFor(userInput);
+    const activeProvider = this.providerFor(inputText);
     const turnStart = Date.now();
     let turnOutput = "";
     let turnToolCalls = 0;
@@ -192,7 +205,7 @@ export class Agent {
 
     let ragContext = "";
     if (this.useRag && this.index) {
-      ragContext = await this.index.formatContextAsync(userInput, 6, 6000);
+      ragContext = await this.index.formatContextAsync(inputText, 6, 6000);
     }
     let memoryContext = "";
     if (!this.quiet) {
@@ -202,6 +215,14 @@ export class Agent {
         if (mem.conventions) memoryContext = mem.conventions;
       } catch {
         /* 忽略记忆读取失败 */
+      }
+      if (this.config.autoSummary && !this.summaryText) {
+        try {
+          const { getProjectSummary } = await import("./summary.js");
+          this.summaryText = await getProjectSummary(this.config);
+        } catch {
+          /* 忽略摘要失败 */
+        }
       }
     }
     const system = this.buildSystem(ragContext, memoryContext);
@@ -490,11 +511,14 @@ export class Agent {
     const memoryBlock = memoryContext
       ? `\n\n以下是本项目的约定与记忆，请务必遵循：\n\n${memoryContext}`
       : "";
+    const summaryBlock = this.summaryText
+      ? `\n\n以下是项目摘要，供你快速了解仓库结构：\n\n${this.summaryText}`
+      : "";
     if (this.systemPromptOverride) {
       return this.systemPromptOverride
         .replace("{WORKDIR}", this.config.workdir)
         .replace("{OS}", process.platform)
-        .replace("{RAG_CONTEXT}", ragContext + memoryBlock);
+        .replace("{RAG_CONTEXT}", ragContext + memoryBlock + summaryBlock);
     }
     return SYSTEM_PROMPT.replace("{WORKDIR}", this.config.workdir)
       .replace("{OS}", process.platform)
@@ -502,7 +526,7 @@ export class Agent {
         "{RAG_CONTEXT}",
         (ragContext
           ? `以下是代码库检索到的相关片段，可作为参考：\n\n${ragContext}`
-          : "") + memoryBlock
+          : "") + memoryBlock + summaryBlock
       );
   }
 }

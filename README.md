@@ -478,7 +478,43 @@ npm run compile
 ## 文档
 
 开发文档见 [`docs/`](docs/README.md)：快速开始、配置参考、插件开发、架构说明。
-示例见 [`examples/`](examples/)（插件与配置）。
+示例见 [`examples/`](examples/)（插件与配置）。配置 JSON Schema 见 [`aicoder.schema.json`](aicoder.schema.json)
+（在 `.aicoder.json` 中写 `"$schema": "./aicoder.schema.json"` 可获得编辑器提示）。
+
+## 项目摘要与记忆
+
+启动时自动生成仓库摘要（文件数、语言分布、关键文件、npm 脚本、依赖）并缓存到
+`.aicoder/summary.md`，注入系统提示，帮助助手快速理解大仓库。可用 `AICODER_SUMMARY=false` 关闭。
+
+## 编辑引擎
+
+除逐个 `edit_file` 外，提供 `multi_edit` 工具对同一文件**原子性**应用多组替换：
+任一处冲突（未找到或不唯一）则整体不改动，并报告冲突，避免"改一半"。
+
+## 多模态输入
+
+网页端支持粘贴/上传图片，随消息一起发送给支持视觉的模型。终端可通过内容块 API：
+
+```ts
+await agent.chat([
+  { type: "text", text: "这张图里的报错是什么？" },
+  { type: "image_url", image_url: { url: "data:image/png;base64,..." } },
+]);
+```
+
+## Web 实时交互
+
+网页端优先使用 **WebSocket**（`/ws`）双向通道，不可用时回退 SSE：
+
+- 工具需要授权时实时弹窗确认，无需重发请求
+- 可随时点击「停止」中断当前生成
+- 支持图片附件
+
+## 配置校验与迁移
+
+加载配置时会自动校验类型并报告问题（未知项告警、类型错误报错），并对旧版本配置
+自动迁移（如顶层安全项 → `security`，`traceFile` → `observability.logFile`）。
+问题与迁移信息会在终端启动时打印。
 
 ## CLI 使用
 
