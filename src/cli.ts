@@ -36,6 +36,8 @@ function printHelp(): void {
   aicoder plugin search [q]  搜索/安装/卸载插件
   aicoder eval [--baseline]  运行评估基准并检测回归
   aicoder feedback [export]  查看反馈 / 导出微调数据
+  aicoder upgrade            检查并升级到最新版本
+  aicoder telemetry          查看匿名遥测状态
   aicoder web                启动网页版 (http://localhost:8787)
   aicoder rag                仅构建代码索引
 
@@ -55,6 +57,24 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+
+  if (args.includes("--version") || args.includes("-v")) {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    try {
+      const pkgPath = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "package.json"
+      );
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+      console.log(pkg.version ?? "unknown");
+    } catch {
+      console.log("unknown");
+    }
+    return;
+  }
 
   if (args[0] === "web" || args[0] === "server") {
     const { startServer } = await import("./server.js");
@@ -92,6 +112,43 @@ async function main(): Promise<void> {
 
   if (args[0] === "doctor") {
     await runDoctor();
+    return;
+  }
+
+  if (args[0] === "telemetry") {
+    const { telemetryEnabled, telemetrySample } = await import("./telemetry.js");
+    const config = loadConfig();
+    void config;
+    console.log(
+      `匿名遥测: ${telemetryEnabled() ? C.green + "已开启" : C.dim + "已关闭"}${C.reset}`
+    );
+    console.log(
+      `${C.dim}默认关闭。开启: AICODER_TELEMETRY=1 或配置 telemetry.enabled=true${C.reset}`
+    );
+    console.log(`${C.dim}将发送的数据示例:${C.reset}`);
+    console.log(JSON.stringify(telemetrySample(), null, 2));
+    return;
+  }
+
+  if (args[0] === "upgrade" || args[0] === "update") {
+    const { checkUpgrade, runGlobalInstall } = await import("./upgrade.js");
+    const c = await checkUpgrade();
+    console.log(`${C.dim}当前版本: ${c.current}${C.reset}`);
+    if (c.latest === null) {
+      console.log(`${C.yellow}无法查询最新版本（网络或 npm registry 不可达）${C.reset}`);
+      return;
+    }
+    if (!c.updateAvailable) {
+      console.log(`${C.green}已是最新版本 (${c.latest})${C.reset}`);
+      return;
+    }
+    console.log(`${C.cyan}发现新版本: ${c.latest}${C.reset}`);
+    const r = await runGlobalInstall();
+    console.log(
+      r.code === 0
+        ? `${C.green}升级完成${C.reset}\n${r.out}`
+        : `${C.red}升级失败${C.reset}\n${r.out}`
+    );
     return;
   }
 

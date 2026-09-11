@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 提问与讨论
+    url: https://github.com/191765/aicoder/discussions
+    about: 一般性问题和讨论请使用 Discussions
+  - name: 安全漏洞
+    url: https://github.com/191765/aicoder/blob/main/SECURITY.md
+    about: 请勿公开提交安全漏洞，参见安全策略

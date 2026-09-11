@@ -13,6 +13,7 @@ import { loadPlugins, type LoadedPlugin } from "./plugins.js";
 import { initObservability, shutdownObservability } from "./observability.js";
 import { initSecurity } from "./security.js";
 import { initSandbox } from "./sandbox.js";
+import { initTelemetry } from "./telemetry.js";
 import { installGithubTools, initGithub } from "./github.js";
 import { setLocale } from "./i18n.js";
 import { initLogger } from "./logger.js";
@@ -43,6 +44,7 @@ export async function initExtensions(config: Config): Promise<ExtensionReport> {
   initObservability(config);
   initSecurity(config);
   initSandbox(config);
+  await initTelemetry(config);
 
   let lsp = 0;
   if (config.lspServers && Object.keys(config.lspServers).length) {

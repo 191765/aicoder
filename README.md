@@ -675,6 +675,57 @@ aicoder feedback export dpo            # 导出偏好对
 `POST /api/webhook` 支持 Slack / 飞书 / 钉钉 / 通用 JSON，自动识别渠道并回复。
 可用 `AICODER_WEBHOOK_TOKEN` 保护。
 
+## 安装与升级
+
+```bash
+# 一行安装（macOS / Linux）
+curl -fsSL https://raw.githubusercontent.com/191765/aicoder/main/scripts/install.sh | sh
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/191765/aicoder/main/scripts/install.ps1 | iex
+
+# 或直接
+npm install -g @191765/aicoder
+npx @191765/aicoder
+
+# 检查并升级
+aicoder upgrade
+aicoder --version
+```
+
+## 版本发布
+
+```bash
+npm run bump patch --tag --release   # 升版本 + 打标签 + GitHub Release
+npm run release:publish              # 发布到 npm
+```
+
+版本遵循语义化版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 开源治理
+
+- [LICENSE](LICENSE)（MIT）、[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)、[ROADMAP.md](ROADMAP.md)、[SECURITY.md](SECURITY.md)
+- Issue / PR 模板见 `.github/`
+
+## 匿名遥测
+
+默认**关闭**。开启后仅发送版本、操作系统、Node 主版本、命令名、是否成功等匿名信息，
+**绝不发送**代码、路径、对话内容或密钥：
+
+```bash
+aicoder telemetry          # 查看状态与将发送的数据示例
+AICODER_TELEMETRY=true     # 开启
+```
+
+## 文档站点
+
+```bash
+npm run site    # 生成静态站点到 site/
+```
+
+推送到 `main` 后由 GitHub Actions 自动部署到 GitHub Pages。
+
 ## CLI 使用
 
 ```bash

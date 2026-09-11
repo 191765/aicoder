@@ -16,6 +16,7 @@ const els = {
   stop: document.getElementById("stop"),
   fileInput: document.getElementById("fileInput"),
   attachments: document.getElementById("attachments"),
+  langSelect: document.getElementById("langSelect"),
 };
 
 /* ---- 图片附件 ---- */
@@ -136,29 +137,57 @@ let busy = false;
 const I18N = {
   zh: {
     newChat: "＋ 新对话", rag: "代码库检索 (RAG)", write: "允许写操作（改文件/执行命令）",
-    history: "历史会话", send: "发送", ready: "就绪",
+    history: "历史会话", send: "发送", ready: "就绪", stop: "停止",
     placeholder: "描述你的需求，例如：帮我修复这个 bug / 解释这段代码 / 写一个测试",
     hint: "Enter 发送 · Shift+Enter 换行 · 写操作默认拦截，需勾选「允许写操作」",
   },
   en: {
     newChat: "＋ New chat", rag: "Codebase search (RAG)", write: "Allow writes (edit files / run commands)",
-    history: "History", send: "Send", ready: "Ready",
+    history: "History", send: "Send", ready: "Ready", stop: "Stop",
     placeholder: "Describe what you need, e.g. fix this bug / explain this code / write a test",
     hint: "Enter to send · Shift+Enter for newline · writes blocked until allowed",
   },
+  ja: {
+    newChat: "＋ 新しい会話", rag: "コード検索 (RAG)", write: "書き込みを許可",
+    history: "履歴", send: "送信", ready: "準備完了", stop: "停止",
+    placeholder: "要望を入力（例: このバグを修正 / コードを説明 / テストを書く）",
+    hint: "Enter で送信 · Shift+Enter で改行 · 書き込みは許可が必要",
+  },
+  ko: {
+    newChat: "＋ 새 대화", rag: "코드 검색 (RAG)", write: "쓰기 허용",
+    history: "기록", send: "보내기", ready: "준비됨", stop: "중지",
+    placeholder: "요청을 입력하세요 (예: 버그 수정 / 코드 설명 / 테스트 작성)",
+    hint: "Enter 전송 · Shift+Enter 줄바꿈 · 쓰기는 허용 필요",
+  },
+  es: {
+    newChat: "＋ Nuevo chat", rag: "Búsqueda de código (RAG)", write: "Permitir escritura",
+    history: "Historial", send: "Enviar", ready: "Listo", stop: "Detener",
+    placeholder: "Describe lo que necesitas, p. ej. corregir este error",
+    hint: "Enter para enviar · Shift+Enter para nueva línea · escritura bloqueada",
+  },
 };
-let lang = (navigator.language || "zh").toLowerCase().startsWith("en") ? "en" : "zh";
+const SUPPORTED_LANGS = ["zh", "en", "ja", "ko", "es"];
+function detectLang() {
+  const saved = localStorage.getItem("aicoder.lang");
+  if (saved && SUPPORTED_LANGS.includes(saved)) return saved;
+  const nav = (navigator.language || "zh").toLowerCase();
+  for (const l of SUPPORTED_LANGS) if (nav.startsWith(l)) return l;
+  return "en";
+}
+let lang = detectLang();
 function applyI18n() {
-  const L = I18N[lang];
+  const L = I18N[lang] || I18N.en;
   const q = (id) => document.getElementById(id);
   if (q("newChat")) q("newChat").textContent = L.newChat;
   if (q("ragToggle")) q("ragToggle").parentElement.querySelector("span").textContent = L.rag;
   if (q("writeToggle")) q("writeToggle").parentElement.querySelector("span").textContent = L.write;
   document.querySelectorAll(".section-title").forEach((el) => (el.textContent = L.history));
   if (q("send")) q("send").textContent = L.send;
+  if (q("stop")) q("stop").textContent = L.stop;
   if (q("input")) q("input").placeholder = L.placeholder;
   const hint = document.querySelector(".hint");
   if (hint) hint.textContent = L.hint;
+  if (q("langSelect")) q("langSelect").value = lang;
 }
 
 els.tokenInput.value = token;
@@ -546,6 +575,13 @@ els.stop?.addEventListener("click", () => {
   }
   if (sseAbort) sseAbort.abort();
   setStatus("已请求中断");
+});
+
+els.langSelect?.addEventListener("change", () => {
+  lang = els.langSelect.value;
+  localStorage.setItem("aicoder.lang", lang);
+  applyI18n();
+  setStatus((I18N[lang] || I18N.en).ready);
 });
 
 fetch("/api/health").then((r) => r.json()).then((d) => {

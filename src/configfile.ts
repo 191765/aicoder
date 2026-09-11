@@ -118,6 +118,11 @@ export interface FileConfig {
     noNetwork?: boolean;
     maxOutputBytes?: number;
   };
+  /** 匿名遥测（默认关闭） */
+  telemetry?: {
+    enabled?: boolean;
+    endpoint?: string;
+  };
   /** 默认主题等 UI 配置 */
   ui?: {
     theme?: string;

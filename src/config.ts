@@ -91,6 +91,8 @@ export interface Config {
   };
   /** Webhook 专用令牌（可留空复用 AICODER_TOKEN） */
   webhookToken?: string;
+  /** 匿名遥测（默认关闭） */
+  telemetry: { enabled: boolean; endpoint?: string };
   /** 只读工具并发上限 */
   concurrency: number;
   /** UI 配置 */
@@ -251,6 +253,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       maxOutputBytes: file.sandbox?.maxOutputBytes ?? 20_000,
     },
     webhookToken: process.env.AICODER_WEBHOOK_TOKEN,
+    telemetry: {
+      enabled:
+        process.env.AICODER_TELEMETRY !== undefined
+          ? bool(process.env.AICODER_TELEMETRY, false)
+          : (file.telemetry?.enabled ?? false),
+      endpoint: process.env.AICODER_TELEMETRY_ENDPOINT ?? file.telemetry?.endpoint,
+    },
     configSources: sources,
     configIssues: issues,
     configMigrations: migrations,
