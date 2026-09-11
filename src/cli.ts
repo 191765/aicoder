@@ -28,6 +28,11 @@ function printHelp(): void {
   aicoder --no-save          不持久化本次会话
   aicoder sessions           列出已保存会话
   aicoder init               交互式生成配置文件
+  aicoder run <name> [args]  运行工作流（review/test/refactor/bugfix/docs/explain）
+  aicoder workflows          列出可用工作流
+  aicoder snapshots          列出编辑快照
+  aicoder rollback <id>      回滚到指定快照
+  aicoder doctor             环境自检（模型/依赖/本地服务）
   aicoder web                启动网页版 (http://localhost:8787)
   aicoder rag                仅构建代码索引
 
@@ -69,6 +74,59 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "workflows" || args[0] === "flows") {
+    const { loadWorkflows } = await import("./workflows.js");
+    const config = loadConfig();
+    const list = await loadWorkflows(config);
+    console.log(`${C.bold}可用工作流:${C.reset}`);
+    for (const w of list) {
+      const src = w.source === "user" ? `${C.dim}(自定义)${C.reset}` : "";
+      console.log(`  ${C.cyan}${w.name}${C.reset}  ${w.description} ${src}`);
+    }
+    console.log(`\n${C.dim}用法: aicoder run <name> [args]${C.reset}`);
+    return;
+  }
+
+  if (args[0] === "doctor") {
+    await runDoctor();
+    return;
+  }
+
+  if (args[0] === "snapshots" || args[0] === "snaps") {
+    const { listSnapshots } = await import("./snapshots.js");
+    const list = await listSnapshots(process.cwd());
+    if (!list.length) {
+      console.log("(暂无快照)");
+      return;
+    }
+    for (const s of list) {
+      console.log(
+        `${C.cyan}${s.id}${C.reset}  ${C.dim}${new Date(s.ts).toLocaleString()}  ${s.reason}${C.reset}`
+      );
+      console.log(`  ${s.files.map((f) => f.path).join(", ")}`);
+    }
+    return;
+  }
+
+  if (args[0] === "rollback") {
+    const { restoreSnapshot } = await import("./snapshots.js");
+    const id = args[1];
+    if (!id) {
+      console.error(`${C.red}用法: aicoder rollback <snapshot-id>${C.reset}`);
+      process.exit(1);
+    }
+    try {
+      const r = await restoreSnapshot(process.cwd(), id);
+      console.log(
+        `${C.green}已回滚 ${id}：恢复 ${r.restored} 个文件，删除 ${r.removed} 个${C.reset}`
+      );
+    } catch (err) {
+      console.error(`${C.red}${err instanceof Error ? err.message : err}${C.reset}`);
+      process.exit(1);
+    }
+    return;
+  }
+
   if (args[0] === "sessions" || args[0] === "list") {
     const { listSessions, sessionsDir } = await import("./session.js");
     const list = await listSessions();
@@ -92,11 +150,27 @@ async function main(): Promise<void> {
   }
 
   const wantRag = args.includes("--rag") || args.includes("-r");
-  const once = args.find((a) => a.startsWith("--prompt="))?.slice("--prompt=".length);
+  let once = args.find((a) => a.startsWith("--prompt="))?.slice("--prompt=".length);
   const resumeArg = args.find((a) => a.startsWith("--resume"));
   const sessionArg = args.find((a) => a.startsWith("--session="))?.slice("--session=".length);
   const noPersist = args.includes("--no-save");
   const config = loadConfig();
+
+  // 工作流：aicoder run <name> [args]
+  if (args[0] === "run") {
+    const { loadWorkflows, getWorkflow, renderWorkflow } = await import("./workflows.js");
+    const name = args[1] ?? "";
+    const list = await loadWorkflows(config);
+    const wf = getWorkflow(list, name);
+    if (!wf) {
+      console.error(
+        `${C.red}未知工作流: ${name || "(空)"}${C.reset}\n可用: ${list.map((w) => w.name).join(", ")}`
+      );
+      process.exit(1);
+    }
+    once = renderWorkflow(wf, args.slice(2).join(" "), config.workdir);
+    console.log(`${C.dim}运行工作流 ${wf.name}: ${wf.description}${C.reset}`);
+  }
 
   if (!config.apiKey && !config.baseURL.includes("localhost")) {
     console.error(
@@ -393,6 +467,74 @@ function confirmPrompt(question: string): Promise<boolean> {
       resolve(/^y(es)?$/i.test(ans.trim()));
     });
   });
+}
+
+/** 环境自检 */
+async function runDoctor(): Promise<void> {
+  const { discoverLocalModels, isLocalConfig, localModelHint } = await import("./local-models.js");
+  const config = loadConfig();
+  console.log(`${C.bold}${C.cyan}AICoder 环境自检${C.reset}\n`);
+
+  const check = (label: string, ok: boolean, detail: string): void => {
+    console.log(
+      `${ok ? C.green + "✓" : C.red + "✗"}${C.reset} ${label}  ${C.dim}${detail}${C.reset}`
+    );
+  };
+
+  check("Node.js", Number(process.versions.node.split(".")[0]) >= 18, process.versions.node);
+  check(
+    "模型配置",
+    Boolean(config.model),
+    `${config.model} @ ${config.baseURL}${isLocalConfig(config) ? " (本地)" : ""}`
+  );
+  check(
+    "API Key",
+    Boolean(config.apiKey) || isLocalConfig(config),
+    config.apiKey ? "已设置" : isLocalConfig(config) ? "本地服务可忽略" : "未设置"
+  );
+  check("工作目录", true, config.workdir);
+  if (config.configSources.length) {
+    console.log(`${C.dim}配置来源: ${config.configSources.join(", ")}${C.reset}`);
+  }
+  if (config.configIssues.length) {
+    for (const i of config.configIssues) {
+      console.log(
+        `${i.severity === "error" ? C.red : C.yellow}  ${i.path}: ${i.message}${C.reset}`
+      );
+    }
+  }
+
+  // git
+  const { spawnSync } = await import("node:child_process");
+  const git = spawnSync("git", ["--version"], { encoding: "utf8" });
+  check("git", git.status === 0, (git.stdout || "").trim() || "未安装");
+  const gh = spawnSync("gh", ["--version"], { encoding: "utf8" });
+  check("gh CLI", gh.status === 0, (gh.stdout || "").split("\n")[0] || "未安装（GitHub 功能受限）");
+
+  // 本地模型
+  console.log(`\n${C.bold}本地模型探测:${C.reset}`);
+  const locals = await discoverLocalModels();
+  let anyLocal = false;
+  for (const l of locals) {
+    if (l.reachable) {
+      anyLocal = true;
+      console.log(
+        `  ${C.green}✓${C.reset} ${l.endpoint}: ${l.models.length ? l.models.slice(0, 8).join(", ") : "(无模型)"}`
+      );
+    } else {
+      console.log(`  ${C.dim}✗ ${l.endpoint}: 不可达${C.reset}`);
+    }
+  }
+  if (!anyLocal && !isLocalConfig(config)) {
+    console.log(`\n${C.dim}${localModelHint()}${C.reset}`);
+  }
+
+  // MCP / LSP / 插件
+  console.log(`\n${C.bold}扩展:${C.reset}`);
+  console.log(`  MCP 服务器: ${Object.keys(config.mcpServers).length}`);
+  console.log(`  LSP 服务器: ${Object.keys(config.lspServers).length}`);
+  console.log(`  插件: ${config.plugins.length}`);
+  console.log(`  多用户: ${config.users.length}`);
 }
 
 /** 交互式初始化向导：生成 .aicoder.json 与 .env */

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { registerTool, safeResolve, type ToolDef } from "./tools.js";
 import { checkContent, audit } from "./security.js";
+import { createSnapshot } from "./snapshots.js";
 
 /**
  * 编辑引擎：批量、原子化的多处编辑
@@ -115,6 +116,7 @@ const multiEditTool: ToolDef = {
       );
     }
 
+    await createSnapshot(ctx.workdir, [path.relative(ctx.workdir, p)], "multi_edit");
     await fs.writeFile(p, text, "utf8");
     audit({
       action: "multi_edit",

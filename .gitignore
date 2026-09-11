@@ -12,3 +12,4 @@ coverage/
 vscode-extension/out/
 vscode-extension/node_modules/
 sbom.json
+.aicoder-e2e-home/

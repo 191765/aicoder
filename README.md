@@ -568,6 +568,53 @@ for await (const ev of agent.chat("你好")) if (ev.type === "text") process.std
 CLI 启动做了惰性加载优化（如 `--help` 约 0.8s，较优化前约 4 倍提升）；
 项目摘要与 RAG 结果带缓存，避免重复计算。
 
+## 工作流与配方
+
+预置常用任务，一键执行（也可在 `.aicoder/workflows/*.md` 自定义）：
+
+```bash
+aicoder workflows              # 列出
+aicoder run review             # 审查改动
+aicoder run test src/agent.ts  # 为文件写测试
+aicoder run refactor "提取函数"
+aicoder run bugfix "登录偶发失败"
+aicoder run docs / explain
+```
+
+## 本地模型
+
+```bash
+aicoder doctor    # 自检：依赖、模型配置、本地服务探测
+```
+
+自动探测 Ollama（`localhost:11434`）与 LM Studio（`localhost:1234`），
+未检测到时给出安装与拉取指引。
+
+## 编辑快照与回滚
+
+写操作前会自动保存受影响文件的快照到 `.aicoder/snapshots/`：
+
+```bash
+aicoder snapshots        # 列出快照
+aicoder rollback <id>    # 回滚
+```
+
+对话中也可用 `list_snapshots` / `restore_snapshot` 工具。
+
+## 增量索引
+
+RAG 与符号索引支持单文件增量更新（`updateFile`/`removeFile`）与 `watch()` 监听变更，
+无需每次全量重建。
+
+## 上下文增强
+
+检索结果会经过重排（rerank：词密度 + 文件名 + 新鲜度，并限制每文件块数），
+提供代码切片与 import 依赖图 API，提升大仓库的相关性。
+
+## 多语言 SDK
+
+见 [`sdk/`](sdk/README.md)：Python、Go、JavaScript 零依赖客户端，调用 `/api/run` 等端点。
+
 ## CLI 使用
 
 ```bash

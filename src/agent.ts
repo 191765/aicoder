@@ -12,6 +12,7 @@ import { installOrchestratorTools } from "./orchestrator.js";
 import { installMemoryTool } from "./memory.js";
 import { installSymbolTools } from "./symbols.js";
 import { installEditEngine } from "./editer.js";
+import { installSnapshotTools } from "./snapshots.js";
 import { ModelRouter } from "./router.js";
 import { log } from "./logger.js";
 import { startSpan } from "./tracing.js";
@@ -85,6 +86,7 @@ export class Agent {
     installMemoryTool();
     installSymbolTools();
     installEditEngine();
+    installSnapshotTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.router = new ModelRouter(opts.config, opts.config.models ?? []);

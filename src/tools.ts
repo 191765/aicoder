@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Config } from "./config.js";
 import { checkContent, checkCommand, audit } from "./security.js";
+import { createSnapshot } from "./snapshots.js";
 
 export interface ToolContext {
   workdir: string;
@@ -109,6 +110,7 @@ register({
       throw new Error(sc.reason);
     }
     if (sc.redacted !== undefined) content = sc.redacted;
+    await createSnapshot(ctx.workdir, [path.relative(ctx.workdir, p)], "write_file");
     await fs.mkdir(path.dirname(p), { recursive: true });
     await fs.writeFile(p, content, "utf8");
     audit({
@@ -155,6 +157,7 @@ register({
     const count = raw.split(oldStr).length - 1;
     if (count === 0) throw new Error("未找到 old_string，无法替换");
     if (count > 1) throw new Error(`old_string 出现 ${count} 次，不唯一`);
+    await createSnapshot(ctx.workdir, [path.relative(ctx.workdir, p)], "edit_file");
     await fs.writeFile(p, raw.replace(oldStr, newStr), "utf8");
     audit({
       action: "edit_file",

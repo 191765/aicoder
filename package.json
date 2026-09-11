@@ -32,7 +32,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "prepare": "husky",
-    "test": "tsx test/unit.ts && tsx test/stage3.ts && tsx test/rag-vector.ts && tsx test/agent-stage3.ts && tsx test/tui-smoke.ts && tsx test/stage4.ts && tsx test/stage4-e2e.ts && tsx test/stage5.ts && tsx test/stage5-retry.ts && tsx test/stage6-concurrency.ts && tsx test/stage6-users.ts && tsx test/stage7.ts && tsx test/stage7-ws.ts && tsx test/stage8.ts && tsx test/stress.ts && tsx test/integration.ts && tsx test/e2e-cli.ts",
+    "test": "tsx test/unit.ts && tsx test/stage3.ts && tsx test/rag-vector.ts && tsx test/agent-stage3.ts && tsx test/tui-smoke.ts && tsx test/stage4.ts && tsx test/stage4-e2e.ts && tsx test/stage5.ts && tsx test/stage5-retry.ts && tsx test/stage6-concurrency.ts && tsx test/stage6-users.ts && tsx test/stage7.ts && tsx test/stage7-ws.ts && tsx test/stage8.ts && tsx test/stage9.ts && tsx test/stress.ts && tsx test/integration.ts && tsx test/e2e-cli.ts",
     "coverage": "c8 --reporter=text --reporter=html --reporter=lcov npm test",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepublishOnly": "npm run clean && npm run build",

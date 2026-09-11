@@ -101,32 +101,44 @@ export class SymbolIndex {
     const files = await this.collectFiles(this.root, 3000);
     const symbols: SymbolDef[] = [];
     for (const rel of files) {
-      let content: string;
-      try {
-        content = await fs.readFile(path.join(this.root, rel), "utf8");
-      } catch {
-        continue;
-      }
-      const lines = content.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]!;
-        if (line.length > 500) continue;
-        for (const { re, kind, group } of PATTERNS) {
-          const m = re.exec(line);
-          if (m && m[group]) {
-            symbols.push({
-              name: m[group]!,
-              kind,
-              file: rel,
-              line: i + 1,
-              column: m.index + 1,
-              signature: line.trim().slice(0, 160),
-            });
-            break;
-          }
+      symbols.push(...(await this.extractFile(rel)));
+    }
+    this.setSymbols(symbols);
+    return symbols.length;
+  }
+
+  /** 提取单个文件的符号 */
+  private async extractFile(rel: string): Promise<SymbolDef[]> {
+    let content: string;
+    try {
+      content = await fs.readFile(path.join(this.root, rel), "utf8");
+    } catch {
+      return [];
+    }
+    const out: SymbolDef[] = [];
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (line.length > 500) continue;
+      for (const { re, kind, group } of PATTERNS) {
+        const m = re.exec(line);
+        if (m && m[group]) {
+          out.push({
+            name: m[group]!,
+            kind,
+            file: rel,
+            line: i + 1,
+            column: m.index + 1,
+            signature: line.trim().slice(0, 160),
+          });
+          break;
         }
       }
     }
+    return out;
+  }
+
+  private setSymbols(symbols: SymbolDef[]): void {
     this.symbols = symbols;
     this.byName = new Map();
     for (const s of symbols) {
@@ -134,7 +146,16 @@ export class SymbolIndex {
       arr.push(s);
       this.byName.set(s.name, arr);
     }
-    return symbols.length;
+  }
+
+  /** 增量更新单个文件的符号 */
+  async updateFile(rel: string): Promise<boolean> {
+    const normalized = rel.split(path.sep).join("/");
+    const kept = this.symbols.filter((s) => s.file !== normalized);
+    const added = await this.extractFile(normalized);
+    if (kept.length === this.symbols.length && added.length === 0) return false;
+    this.setSymbols([...kept, ...added]);
+    return true;
   }
 
   /** 模糊查找符号定义 */

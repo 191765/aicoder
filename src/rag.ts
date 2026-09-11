@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { Config } from "./config.js";
@@ -183,6 +184,116 @@ export class CodeIndex {
     return this.chunks.length - (prebuiltText ? 0 : 0);
   }
 
+  /**
+   * 增量更新单个文件：重新切块并替换该文件的所有旧块。
+   * 文件被删除或为空时移除对应块。返回是否发生变化。
+   */
+  async updateFile(rel: string): Promise<boolean> {
+    const normalized = rel.split(path.sep).join("/");
+    const abs = path.join(this.root, normalized);
+    let content: string | null;
+    try {
+      content = await fs.readFile(abs, "utf8");
+      if (content.includes("\u0000")) content = null;
+    } catch {
+      content = null;
+    }
+
+    const before = this.chunks.filter((c) => c.file !== normalized);
+    const removed = this.chunks.length - before.length;
+    let addedChunks: Chunk[] = [];
+    if (content !== null) {
+      addedChunks = splitChunks(normalized, content);
+      if (this.embedder) {
+        try {
+          const vecs = await this.embedder.embed(addedChunks.map((c) => c.text));
+          addedChunks.forEach((c, i) => (c.vector = vecs[i]));
+        } catch {
+          /* 向量失败不影响 BM25 */
+        }
+      }
+    }
+
+    const changed = removed > 0 || addedChunks.length > 0;
+    this.setChunks([...before, ...addedChunks]);
+    if (changed) await this.save();
+    return changed;
+  }
+
+  /** 从索引中移除某文件 */
+  async removeFile(rel: string): Promise<boolean> {
+    const normalized = rel.split(path.sep).join("/");
+    const before = this.chunks.filter((c) => c.file !== normalized);
+    if (before.length === this.chunks.length) return false;
+    this.setChunks(before);
+    await this.save();
+    return true;
+  }
+
+  /**
+   * 监听工作目录变化，增量更新索引。返回停止函数。
+   */
+  watch(debounceMs = 800): () => void {
+    const dirs = new Set<string>();
+    let timer: NodeJS.Timeout | null = null;
+    const pending = new Set<string>();
+
+    const flush = async (): Promise<void> => {
+      const files = [...pending];
+      pending.clear();
+      let changed = false;
+      for (const rel of files) {
+        try {
+          const updated = await this.updateFile(rel);
+          changed = changed || updated;
+        } catch {
+          /* 忽略 */
+        }
+      }
+      void changed;
+    };
+
+    const schedule = (rel: string): void => {
+      pending.add(rel);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void flush(), debounceMs);
+    };
+
+    const watchers: fsSync.FSWatcher[] = [];
+    const watchDir = (dir: string): void => {
+      if (dirs.has(dir)) return;
+      dirs.add(dir);
+      try {
+        const w = fsSync.watch(dir, { persistent: false }, (_event, filename) => {
+          if (!filename) return;
+          const rel = path.relative(this.root, path.join(dir, filename.toString()));
+          schedule(rel);
+        });
+        watchers.push(w);
+      } catch {
+        /* 目录不可监听 */
+      }
+    };
+
+    // 监听顶层与已索引文件所在目录
+    watchDir(this.root);
+    for (const c of this.chunks) {
+      const dir = path.dirname(path.join(this.root, c.file));
+      watchDir(dir);
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      for (const w of watchers) {
+        try {
+          w.close();
+        } catch {
+          /* 忽略 */
+        }
+      }
+    };
+  }
+
   /** 为所有片块生成向量（分批，避免单次请求过大） */
   async buildVectors(): Promise<number> {
     if (!this.embedder) return 0;
@@ -347,11 +458,18 @@ export class CodeIndex {
     return this.formatHits(this.search(query, topK), maxChars);
   }
 
-  /** 异步版本，启用向量时使用混合检索 */
+  /** 异步版本，启用向量时使用混合检索，并对结果重排 */
   async formatContextAsync(query: string, topK = 6, maxChars = 6000): Promise<string> {
-    const hits = this.vectorEnabled
-      ? await this.searchAsync(query, topK)
-      : this.search(query, topK);
+    const raw = this.vectorEnabled
+      ? await this.searchAsync(query, topK * 2)
+      : this.search(query, topK * 2);
+    let hits: SearchHit[];
+    try {
+      const { rerank } = await import("./context-enhance.js");
+      hits = rerank(raw, query, { perFileLimit: 2 }).slice(0, topK);
+    } catch {
+      hits = raw.slice(0, topK);
+    }
     return this.formatHits(hits, maxChars);
   }
 
