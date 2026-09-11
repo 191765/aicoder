@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseRules, type PermissionRule } from "./permissions.js";
 import { DEFAULT_BUDGET, type ContextBudget } from "./context.js";
+import type { McpServerConfig } from "./mcp.js";
+import type { LspServerConfig } from "./lsp.js";
 
 function num(v: string | undefined, def: number): number {
   if (v === undefined || v.trim() === "") return def;
@@ -33,6 +35,10 @@ export interface Config {
   rules: PermissionRule[];
   /** 上下文预算 */
   budget: ContextBudget;
+  /** MCP 服务器配置 */
+  mcpServers: Record<string, McpServerConfig>;
+  /** LSP 服务器配置（按语言） */
+  lspServers: Record<string, LspServerConfig>;
 }
 
 interface FileConfig {
@@ -44,6 +50,8 @@ interface FileConfig {
   autoApprove?: boolean;
   permissions?: string[] | Record<string, string[]>;
   context?: Partial<ContextBudget>;
+  mcpServers?: Record<string, McpServerConfig>;
+  lspServers?: Record<string, LspServerConfig>;
 }
 
 function loadFileConfig(workdir: string): FileConfig {
@@ -136,6 +144,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     permissionRules,
     rules: parseRules(permissionRules),
     budget,
+    mcpServers: file.mcpServers ?? {},
+    lspServers: file.lspServers ?? {},
     ...overrides,
   };
   // 派生字段归一化：若覆盖了 permissionRules 但未显式覆盖 rules，则重新解析

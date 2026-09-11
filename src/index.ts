@@ -25,4 +25,10 @@ export {
   DEFAULT_BUDGET,
   type ContextBudget,
 } from "./context.js";
+export { installSubagentTool } from "./subagent.js";
+export { installGitTools } from "./git.js";
+export { installLspTools, setLspServers, closeLspClients } from "./lsp.js";
+export { installMcpServers, closeMcpServers, type McpServerConfig } from "./mcp.js";
+export { initExtensions, shutdownExtensions, type ExtensionReport } from "./runtime.js";
+export type { LspServerConfig } from "./lsp.js";
 export type { ChatMessage, ToolCall, ToolResult, StreamEvent } from "./types.js";

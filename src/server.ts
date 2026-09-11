@@ -28,6 +28,17 @@ export async function startServer(): Promise<void> {
   }
   const sessions = new Map<string, Session>();
 
+  const { initExtensions } = await import("./runtime.js");
+  try {
+    const ext = await initExtensions(config);
+    for (const m of ext.mcp) {
+      if (m.error) console.log(`MCP ${m.server}: 连接失败 ${m.error}`);
+      else console.log(`MCP ${m.server}: 已加载 ${m.tools} 个工具`);
+    }
+  } catch (err) {
+    console.error("扩展初始化失败:", err instanceof Error ? err.message : err);
+  }
+
   const server = http.createServer(async (req, res) => {
     try {
       await handle(req, res, config, sessions);

@@ -8,6 +8,9 @@ import {
   type PermissionContext,
 } from "./permissions.js";
 import { buildContext, historyTokens } from "./context.js";
+import { installSubagentTool } from "./subagent.js";
+import { installGitTools } from "./git.js";
+import { installLspTools } from "./lsp.js";
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -25,6 +28,12 @@ export interface AgentOptions {
   onConfirm?: (question: string) => Promise<boolean>;
   /** 运行期动态追加的允许工具（如 web 端用户本次批准） */
   extraAllow?: Set<string>;
+  /** 排除的工具名（如子代理禁止再次派发 task） */
+  excludeTools?: Set<string>;
+  /** 覆盖系统提示（子代理使用专用提示） */
+  systemPrompt?: string;
+  /** 静默模式：不产生 tool_* 事件，仅返回文本（子代理内部使用） */
+  quiet?: boolean;
 }
 
 const SYSTEM_PROMPT = `你是 AICoder，一个开源 AI 编程助手，运行在用户的开发环境中。
@@ -50,13 +59,22 @@ export class Agent {
   private useRag: boolean;
   private onConfirm?: (question: string) => Promise<boolean>;
   private extraAllow: Set<string>;
+  private excludeTools: Set<string>;
+  private systemPromptOverride?: string;
+  private quiet: boolean;
 
   constructor(opts: AgentOptions) {
+    installSubagentTool();
+    installGitTools();
+    installLspTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
     this.useRag = opts.useRag ?? false;
     this.onConfirm = opts.onConfirm;
     this.extraAllow = opts.extraAllow ?? new Set();
+    this.excludeTools = opts.excludeTools ?? new Set();
+    this.systemPromptOverride = opts.systemPrompt;
+    this.quiet = opts.quiet ?? false;
   }
 
   get messages(): ChatMessage[] {
@@ -108,10 +126,10 @@ export class Agent {
     const system = this.buildSystem(ragContext);
 
     for (let step = 0; step < this.config.maxSteps; step++) {
-      yield { type: "step", index: step + 1 };
+      if (!this.quiet) yield { type: "step", index: step + 1 };
 
       const ctx = buildContext(system, this.history, this.config.budget);
-      if (ctx.trimmed) {
+      if (ctx.trimmed && !this.quiet) {
         yield {
           type: "context",
           tokens: ctx.tokens,
@@ -124,7 +142,11 @@ export class Agent {
       let toolCalls: ToolCall[] = [];
       let errored = false;
 
-      for await (const ev of this.provider.stream(ctx.messages, toolSchemas(), signal)) {
+      for await (const ev of this.provider.stream(
+        ctx.messages,
+        toolSchemas(this.excludeTools),
+        signal
+      )) {
         if (ev.type === "text") {
           assistantText += ev.delta;
           yield { type: "text", delta: ev.delta };
@@ -153,13 +175,16 @@ export class Agent {
       for (const call of toolCalls) {
         const name = call.function.name;
         const rawArgs = call.function.arguments || "{}";
-        yield { type: "tool_start", name, args: rawArgs };
+        if (!this.quiet) yield { type: "tool_start", name, args: rawArgs };
 
         let result: string;
         let ok = true;
         try {
           const tool = findTool(name);
           if (!tool) throw new Error(`未知工具: ${name}`);
+          if (this.excludeTools.has(name)) {
+            throw new Error(`该工具在当前上下文不可用: ${name}`);
+          }
           let parsed: Record<string, unknown> = {};
           try {
             parsed = JSON.parse(rawArgs) as Record<string, unknown>;
@@ -190,8 +215,10 @@ export class Agent {
               name,
               content: result,
             });
-            yield { type: "tool_denied", name, reason: perm.reason };
-            yield { type: "tool_end", name, ok, result };
+            if (!this.quiet) {
+              yield { type: "tool_denied", name, reason: perm.reason };
+              yield { type: "tool_end", name, ok, result };
+            }
             continue;
           }
 
@@ -211,8 +238,10 @@ export class Agent {
                 name,
                 content: result,
               });
-              yield { type: "tool_denied", name, reason: "用户拒绝" };
-              yield { type: "tool_end", name, ok, result };
+              if (!this.quiet) {
+                yield { type: "tool_denied", name, reason: "用户拒绝" };
+                yield { type: "tool_end", name, ok, result };
+              }
               continue;
             }
             this.extraAllow.add(name);
@@ -230,23 +259,33 @@ export class Agent {
           name,
           content: result,
         });
-        yield {
-          type: "tool_end",
-          name,
-          ok,
-          result: result.slice(0, 2000),
-        };
+        if (!this.quiet) {
+          yield {
+            type: "tool_end",
+            name,
+            ok,
+            result: result.slice(0, 2000),
+          };
+        }
       }
     }
 
-    yield {
-      type: "error",
-      message: `已达到最大工具调用轮数 (${this.config.maxSteps})，已停止。`,
-    };
+    if (!this.quiet) {
+      yield {
+        type: "error",
+        message: `已达到最大工具调用轮数 (${this.config.maxSteps})，已停止。`,
+      };
+    }
     yield { type: "done" };
   }
 
   private buildSystem(ragContext: string): string {
+    if (this.systemPromptOverride) {
+      return this.systemPromptOverride
+        .replace("{WORKDIR}", this.config.workdir)
+        .replace("{OS}", process.platform)
+        .replace("{RAG_CONTEXT}", ragContext);
+    }
     return SYSTEM_PROMPT.replace("{WORKDIR}", this.config.workdir)
       .replace("{OS}", process.platform)
       .replace(

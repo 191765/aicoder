@@ -29,6 +29,10 @@ function printHelp(): void {
   /exit  退出          /reset  清空上下文
   /rag   重建索引
 
+扩展能力（在 .aicoder.json 中配置）:
+  mcpServers  MCP 服务器          lspServers  LSP 语言服务器
+内置工具: 文件/搜索/命令、task 子代理、git_*、lsp_*、mcp__*
+
 配置见 .env（AICODER_API_KEY / AICODER_BASE_URL / AICODER_MODEL 等）`);
 }
 
@@ -69,6 +73,18 @@ async function main(): Promise<void> {
   console.log(`${C.bold}${C.cyan}AICoder${C.reset} ${C.dim}开源 AI 编程助手${C.reset}`);
   console.log(`${C.dim}模型: ${config.model}  工作目录: ${config.workdir}${C.reset}`);
 
+  const { initExtensions, shutdownExtensions } = await import("./runtime.js");
+  const ext = await initExtensions(config);
+  if (ext.mcp.length) {
+    for (const m of ext.mcp) {
+      if (m.error) {
+        console.log(`${C.yellow}MCP ${m.server}: 连接失败 ${m.error}${C.reset}`);
+      } else {
+        console.log(`${C.dim}MCP ${m.server}: 已加载 ${m.tools} 个工具${C.reset}`);
+      }
+    }
+  }
+
   const agent = new Agent({
     config,
     useRag: wantRag,
@@ -85,6 +101,7 @@ async function main(): Promise<void> {
 
   if (once) {
     await runTurn(agent, once);
+    shutdownExtensions();
     return;
   }
 
@@ -121,6 +138,7 @@ async function main(): Promise<void> {
 
   rl.on("close", () => {
     console.log(`\n${C.dim}再见${C.reset}`);
+    shutdownExtensions();
     process.exit(0);
   });
 }

@@ -23,7 +23,13 @@ export interface ToolDef {
 export const tools: ToolDef[] = [];
 
 function register(t: ToolDef): void {
+  if (tools.some((x) => x.name === t.name)) return;
   tools.push(t);
+}
+
+/** 供扩展模块（如子代理、MCP、Git）注册工具 */
+export function registerTool(t: ToolDef): void {
+  register(t);
 }
 
 /** 确保路径位于工作目录内，防止越界访问 */
@@ -337,8 +343,9 @@ async function walkGlob(
   return files.filter((f) => re.test(f)).slice(0, max);
 }
 
-export function toolSchemas() {
-  return tools.map((t) => ({
+export function toolSchemas(exclude?: Set<string>) {
+  const list = exclude ? tools.filter((t) => !exclude.has(t.name)) : tools;
+  return list.map((t) => ({
     type: "function" as const,
     function: {
       name: t.name,
