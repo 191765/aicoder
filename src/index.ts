@@ -31,4 +31,32 @@ export { installLspTools, setLspServers, closeLspClients } from "./lsp.js";
 export { installMcpServers, closeMcpServers, type McpServerConfig } from "./mcp.js";
 export { initExtensions, shutdownExtensions, type ExtensionReport } from "./runtime.js";
 export type { LspServerConfig } from "./lsp.js";
+export {
+  ModelRouter,
+  inferTaskForTool,
+  type RouteContext,
+} from "./router.js";
+export {
+  saveSession,
+  loadSession,
+  listSessions,
+  deleteSession,
+  buildSession,
+  deriveTitle,
+  newSessionId,
+  sessionsDir,
+  type SessionMeta,
+  type StoredSession,
+} from "./session.js";
+export { EmbeddingsClient, cosineSimilarity, createEmbeddingsClient } from "./embeddings.js";
+export {
+  loadLayeredConfig,
+  mergeConfig,
+  normalizePermissions,
+  type FileConfig,
+  type ModelRoute,
+  type LayeredConfig,
+} from "./configfile.js";
+export { getTheme, THEMES, type Theme } from "./theme.js";
+export { runTui, Tui, type TuiOptions } from "./tui.js";
 export type { ChatMessage, ToolCall, ToolResult, StreamEvent } from "./types.js";

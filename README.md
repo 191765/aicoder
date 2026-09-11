@@ -209,11 +209,88 @@ npm install -g typescript-language-server typescript
 未安装时相关工具会返回明确的安装提示，不会导致崩溃。LSP 服务器在首次使用对应
 文件类型时才会启动。
 
+## 层级配置
+
+配置按优先级从低到高合并，高层覆盖低层：
+
+1. **全局** `~/.config/aicoder/aicoder.json`（Windows: `%APPDATA%/aicoder/aicoder.json`）
+2. **项目** `<工作目录>/.aicoder.json`
+3. **环境变量 / 运行时覆盖**
+
+合并规则：对象深合并，数组（如 `permissions`）按层拼接。这样团队可以把项目级
+约定提交到仓库，个人偏好放全局。`aicoder` 启动时会打印命中的配置来源。
+
+## 会话持久化
+
+会话自动保存到 `~/.config/aicoder/sessions/`（可用 `AICODER_HOME` 覆盖）：
+
+```bash
+aicoder --resume            # 恢复最近会话
+aicoder --resume=<id>       # 恢复指定会话
+aicoder --session=<id>      # 使用指定 id
+aicoder --no-save           # 不持久化
+aicoder sessions            # 列出已保存会话
+```
+
+交互命令：`/save` 保存、`/sessions` 列表、`/delete <id>` 删除、`/new` 新建。
+
+## 多模型路由
+
+在 `.aicoder.json` 中配置 `models`，按任务 / 工具 / 输入正则路由到不同模型：
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "models": [
+    { "match": { "task": "chat", "input": "重构|架构|设计" }, "model": "gpt-4o" },
+    { "match": { "task": "explore" }, "model": "gpt-4o-mini" },
+    { "model": "gpt-4o" }
+  ]
+}
+```
+
+规则按数组顺序匹配，第一条命中生效；无 `match` 的规则作为默认。可为路由单独指定
+`baseURL` / `apiKey`。
+
+## 向量 RAG
+
+默认使用 BM25 关键词检索。启用 embeddings 后升级为 **BM25 + 向量混合检索**：
+
+```dotenv
+AICODER_EMBEDDINGS=true
+AICODER_EMBEDDING_MODEL=text-embedding-3-small
+AICODER_EMBEDDING_WEIGHT=0.5
+```
+
+或在 `.aicoder.json` 中：
+
+```json
+{ "embeddings": { "enabled": true, "model": "text-embedding-3-small", "weight": 0.5 } }
+```
+
+向量失败时自动回退到纯 BM25。索引文件会缓存向量，缺少向量时增量补齐。
+
+## 富交互 TUI
+
+使用 `--tui` 或配置 `ui.rich: true` 启用：
+
+```bash
+aicoder --tui
+```
+
+```json
+{ "ui": { "rich": true, "theme": "dark" } }
+```
+
+特性：多行编辑（`Ctrl+J` 换行）、输入历史（`↑`/`↓`）、行内编辑（`←`/`→`/`Home`/`End`）、
+流式输出、状态行、主题（`dark` / `light` / `plain`，用 `AICODER_THEME` 或 `ui.theme` 设置）。
+
 ## CLI 使用
 
 ```bash
 npm run dev              # 交互式对话
 npm run dev -- --rag     # 启动时构建代码库索引
+npm run dev -- --tui     # 富交互 TUI
 npm run dev -- --prompt="解释 src/agent.ts 的核心逻辑"
 ```
 

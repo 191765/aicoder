@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { Config } from "./config.js";
+import { createEmbeddingsClient, cosineSimilarity, type EmbeddingsClient } from "./embeddings.js";
 
 export interface Chunk {
   file: string;
@@ -11,6 +12,8 @@ export interface Chunk {
   /** 词 -> 频次 */
   tf: Map<string, number>;
   len: number;
+  /** 向量（启用 embeddings 时存在） */
+  vector?: number[];
 }
 
 export interface SearchHit {
@@ -19,17 +22,21 @@ export interface SearchHit {
   end: number;
   score: number;
   preview: string;
+  /** 命中来源：bm25 / vector / hybrid */
+  via?: "bm25" | "vector" | "hybrid";
 }
 
 interface IndexFile {
   version: number;
   root: string;
   builtAt: number;
+  embeddingModel?: string;
   chunks: Array<{
     file: string;
     start: number;
     end: number;
     text: string;
+    vector?: number[];
   }>;
 }
 
@@ -71,15 +78,23 @@ export class CodeIndex {
   private df = new Map<string, number>();
   private avgLen = 1;
   private root: string;
+  private embedder: EmbeddingsClient | null;
+  private vectorWeight: number;
   readonly indexPath: string;
 
   constructor(cfg: Config) {
     this.root = cfg.workdir;
     this.indexPath = path.join(this.root, INDEX_FILENAME);
+    this.embedder = createEmbeddingsClient(cfg);
+    this.vectorWeight = cfg.embeddings?.weight ?? 0.5;
   }
 
   get size(): number {
     return this.chunks.length;
+  }
+
+  get vectorEnabled(): boolean {
+    return this.embedder !== null;
   }
 
   async build(prebuiltText?: string): Promise<number> {
@@ -96,8 +111,32 @@ export class CodeIndex {
       chunks.push(...splitChunks(rel, content));
     }
     this.setChunks(chunks);
+    if (this.embedder) {
+      await this.buildVectors();
+    }
     await this.save();
     return this.chunks.length - (prebuiltText ? 0 : 0);
+  }
+
+  /** 为所有片块生成向量（分批，避免单次请求过大） */
+  async buildVectors(): Promise<number> {
+    if (!this.embedder) return 0;
+    const batchSize = 32;
+    let done = 0;
+    for (let i = 0; i < this.chunks.length; i += batchSize) {
+      const batch = this.chunks.slice(i, i + batchSize);
+      try {
+        const vecs = await this.embedder.embed(batch.map((c) => c.text));
+        for (let j = 0; j < batch.length; j++) {
+          batch[j]!.vector = vecs[j];
+        }
+        done += batch.length;
+      } catch {
+        // 向量失败时保留已有（BM25 仍可用）
+        break;
+      }
+    }
+    return done;
   }
 
   async loadOrBuild(): Promise<void> {
@@ -105,9 +144,17 @@ export class CodeIndex {
       const raw = await fs.readFile(this.indexPath, "utf8");
       const parsed = JSON.parse(raw) as IndexFile;
       if (parsed.root === this.root && Array.isArray(parsed.chunks)) {
-        this.setChunks(
-          parsed.chunks.map((c) => makeChunk(c.file, c.start, c.end, c.text))
-        );
+        const chunks = parsed.chunks.map((c) => {
+          const chunk = makeChunk(c.file, c.start, c.end, c.text);
+          chunk.vector = c.vector;
+          return chunk;
+        });
+        this.setChunks(chunks);
+        // 启用向量但索引缺少向量时增量补齐
+        if (this.embedder && !chunks.some((c) => c.vector)) {
+          await this.buildVectors();
+          await this.save();
+        }
         return;
       }
     } catch {
@@ -131,59 +178,124 @@ export class CodeIndex {
 
   private async save(): Promise<void> {
     const data: IndexFile = {
-      version: 1,
+      version: this.embedder ? 2 : 1,
       root: this.root,
       builtAt: Date.now(),
+      embeddingModel: this.embedder?.model,
       chunks: this.chunks.map((c) => ({
         file: c.file,
         start: c.start,
         end: c.end,
         text: c.text,
+        vector: c.vector,
       })),
     };
     await fs.writeFile(this.indexPath, JSON.stringify(data), "utf8");
   }
 
-  search(query: string, topK = 6): SearchHit[] {
+  /** 纯 BM25 打分 */
+  private bm25Scores(query: string): Map<Chunk, number> {
     const qTokens = tokenize(query);
-    if (!qTokens.length || !this.chunks.length) return [];
+    const out = new Map<Chunk, number>();
+    if (!qTokens.length) return out;
     const N = this.chunks.length;
     const k1 = 1.5;
     const b = 0.75;
     const qSet = new Set(qTokens);
-    const scored: SearchHit[] = [];
-
     for (const c of this.chunks) {
       let score = 0;
       for (const term of qSet) {
         const f = c.tf.get(term);
         if (!f) continue;
-        const idf = Math.log(1 + (N - (this.df.get(term) ?? 0) + 0.5) /
-          ((this.df.get(term) ?? 0) + 0.5));
+        const idf = Math.log(
+          1 + (N - (this.df.get(term) ?? 0) + 0.5) / ((this.df.get(term) ?? 0) + 0.5)
+        );
         const denom = f + k1 * (1 - b + b * (c.len / this.avgLen));
         score += idf * ((f * (k1 + 1)) / denom);
       }
-      if (score > 0) {
-        scored.push({
-          file: c.file,
-          start: c.start,
-          end: c.end,
-          score,
-          preview: c.text.slice(0, 400),
-        });
-      }
+      if (score > 0) out.set(c, score);
     }
+    return out;
+  }
+
+  /** 同步检索（BM25）。向量检索请用 searchAsync */
+  search(query: string, topK = 6): SearchHit[] {
+    const bm25 = this.bm25Scores(query);
+    const scored: SearchHit[] = [...bm25.entries()].map(([c, score]) => ({
+      file: c.file,
+      start: c.start,
+      end: c.end,
+      score,
+      preview: c.text.slice(0, 400),
+      via: "bm25" as const,
+    }));
     scored.sort((a, b2) => b2.score - a.score);
     return scored.slice(0, topK);
   }
 
+  /** 混合检索：BM25 + 向量（需启用 embeddings） */
+  async searchAsync(query: string, topK = 6): Promise<SearchHit[]> {
+    const bm25 = this.bm25Scores(query);
+    const hasVectors = this.embedder && this.chunks.some((c) => c.vector);
+    if (!this.embedder || !hasVectors) return this.search(query, topK);
+
+    let qVec: number[] | null = null;
+    try {
+      qVec = await this.embedder.embedOne(query);
+    } catch {
+      return this.search(query, topK);
+    }
+    if (!qVec) return this.search(query, topK);
+
+    // 归一化两种分数
+    const maxBm25 = Math.max(1e-6, ...bm25.values());
+    const vecScores = new Map<Chunk, number>();
+    for (const c of this.chunks) {
+      if (!c.vector) continue;
+      const sim = cosineSimilarity(qVec, c.vector);
+      vecScores.set(c, sim);
+    }
+    const maxVec = Math.max(1e-6, ...vecScores.values());
+    const w = Math.max(0, Math.min(1, this.vectorWeight));
+
+    const combined: SearchHit[] = [];
+    for (const c of this.chunks) {
+      const b = (bm25.get(c) ?? 0) / maxBm25;
+      const v = (vecScores.get(c) ?? 0) / maxVec;
+      const score = (1 - w) * b + w * v;
+      if (score <= 0) continue;
+      combined.push({
+        file: c.file,
+        start: c.start,
+        end: c.end,
+        score,
+        preview: c.text.slice(0, 400),
+        via: "hybrid",
+      });
+    }
+    combined.sort((a, b2) => b2.score - a.score);
+    return combined.slice(0, topK);
+  }
+
   /** 将检索结果格式化为给 LLM 的上下文 */
   formatContext(query: string, topK = 6, maxChars = 6000): string {
-    const hits = this.search(query, topK);
+    return this.formatHits(this.search(query, topK), maxChars);
+  }
+
+  /** 异步版本，启用向量时使用混合检索 */
+  async formatContextAsync(query: string, topK = 6, maxChars = 6000): Promise<string> {
+    const hits = this.vectorEnabled
+      ? await this.searchAsync(query, topK)
+      : this.search(query, topK);
+    return this.formatHits(hits, maxChars);
+  }
+
+  private formatHits(hits: SearchHit[], maxChars: number): string {
     if (!hits.length) return "";
     let out = "";
     for (const h of hits) {
-      const block = `### ${h.file}:${h.start}-${h.end} (score ${h.score.toFixed(2)})\n${h.preview}\n\n`;
+      const via = h.via && h.via !== "bm25" ? `/${h.via}` : "";
+      const block = `### ${h.file}:${h.start}-${h.end} (score ${h.score.toFixed(2)}${via})\n${h.preview}\n\n`;
       if (out.length + block.length > maxChars) break;
       out += block;
     }

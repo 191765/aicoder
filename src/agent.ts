@@ -11,6 +11,7 @@ import { buildContext, historyTokens } from "./context.js";
 import { installSubagentTool } from "./subagent.js";
 import { installGitTools } from "./git.js";
 import { installLspTools } from "./lsp.js";
+import { ModelRouter } from "./router.js";
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -34,6 +35,10 @@ export interface AgentOptions {
   systemPrompt?: string;
   /** 静默模式：不产生 tool_* 事件，仅返回文本（子代理内部使用） */
   quiet?: boolean;
+  /** 会话持久化：会话 id，传入则自动保存历史 */
+  sessionId?: string;
+  /** 是否启用持久化（默认 sessionId 存在时启用） */
+  persist?: boolean;
 }
 
 const SYSTEM_PROMPT = `你是 AICoder，一个开源 AI 编程助手，运行在用户的开发环境中。
@@ -54,6 +59,8 @@ const SYSTEM_PROMPT = `你是 AICoder，一个开源 AI 编程助手，运行在
 export class Agent {
   private provider: Provider;
   private config: Config;
+  private router: ModelRouter;
+  private providerCache = new Map<string, Provider>();
   private history: ChatMessage[] = [];
   private index: CodeIndex | null = null;
   private useRag: boolean;
@@ -62,6 +69,9 @@ export class Agent {
   private excludeTools: Set<string>;
   private systemPromptOverride?: string;
   private quiet: boolean;
+  private sessionId?: string;
+  private persist: boolean;
+  private createdAt: number;
 
   constructor(opts: AgentOptions) {
     installSubagentTool();
@@ -69,12 +79,44 @@ export class Agent {
     installLspTools();
     this.config = opts.config;
     this.provider = createProvider(opts.config);
+    this.router = new ModelRouter(opts.config, opts.config.models ?? []);
     this.useRag = opts.useRag ?? false;
     this.onConfirm = opts.onConfirm;
     this.extraAllow = opts.extraAllow ?? new Set();
     this.excludeTools = opts.excludeTools ?? new Set();
     this.systemPromptOverride = opts.systemPrompt;
     this.quiet = opts.quiet ?? false;
+    this.sessionId = opts.sessionId;
+    this.persist = opts.persist ?? Boolean(opts.sessionId);
+    this.createdAt = Date.now();
+  }
+
+  /** 载入已有历史（恢复会话） */
+  loadHistory(messages: ChatMessage[]): void {
+    this.history = messages.map((m) => ({ ...m }));
+  }
+
+  get id(): string | undefined {
+    return this.sessionId;
+  }
+
+  set id(value: string | undefined) {
+    this.sessionId = value;
+  }
+
+  /** 持久化当前会话 */
+  async save(): Promise<void> {
+    if (!this.persist || !this.sessionId || this.quiet) return;
+    const { saveSession, buildSession } = await import("./session.js");
+    await saveSession(
+      buildSession(
+        this.sessionId,
+        this.config.workdir,
+        this.config.model,
+        this.history,
+        this.createdAt
+      )
+    );
   }
 
   get messages(): ChatMessage[] {
@@ -83,6 +125,10 @@ export class Agent {
 
   get contextTokens(): number {
     return historyTokens(this.history);
+  }
+
+  get model(): string {
+    return this.config.model;
   }
 
   reset(): void {
@@ -109,8 +155,22 @@ export class Agent {
     };
   }
 
+  private providerFor(input: string): Provider {
+    if (!this.router.enabled) return this.provider;
+    const resolved = this.router.resolve({ task: "chat", input });
+    const key = `${resolved.baseURL}|${resolved.model}|${resolved.apiKey}`;
+    let p = this.providerCache.get(key);
+    if (!p) {
+      p = createProvider(resolved);
+      this.providerCache.set(key, p);
+    }
+    return p;
+  }
+
   async *chat(userInput: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     this.history.push({ role: "user", content: userInput });
+
+    const activeProvider = this.providerFor(userInput);
 
     const toolContext: ToolContext = {
       workdir: this.config.workdir,
@@ -121,7 +181,7 @@ export class Agent {
 
     let ragContext = "";
     if (this.useRag && this.index) {
-      ragContext = this.index.formatContext(userInput, 6, 6000);
+      ragContext = await this.index.formatContextAsync(userInput, 6, 6000);
     }
     const system = this.buildSystem(ragContext);
 
@@ -142,7 +202,7 @@ export class Agent {
       let toolCalls: ToolCall[] = [];
       let errored = false;
 
-      for await (const ev of this.provider.stream(
+      for await (const ev of activeProvider.stream(
         ctx.messages,
         toolSchemas(this.excludeTools),
         signal
@@ -162,6 +222,7 @@ export class Agent {
 
       if (toolCalls.length === 0) {
         this.history.push({ role: "assistant", content: assistantText });
+        await this.save();
         yield { type: "done" };
         return;
       }
@@ -276,6 +337,7 @@ export class Agent {
         message: `已达到最大工具调用轮数 (${this.config.maxSteps})，已停止。`,
       };
     }
+    await this.save();
     yield { type: "done" };
   }
 

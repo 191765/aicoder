@@ -1,10 +1,15 @@
 import "dotenv/config";
-import fs from "node:fs";
 import path from "node:path";
 import { parseRules, type PermissionRule } from "./permissions.js";
 import { DEFAULT_BUDGET, type ContextBudget } from "./context.js";
 import type { McpServerConfig } from "./mcp.js";
 import type { LspServerConfig } from "./lsp.js";
+import {
+  loadLayeredConfig,
+  normalizePermissions,
+  type FileConfig,
+  type ModelRoute,
+} from "./configfile.js";
 
 function num(v: string | undefined, def: number): number {
   if (v === undefined || v.trim() === "") return def;
@@ -39,51 +44,24 @@ export interface Config {
   mcpServers: Record<string, McpServerConfig>;
   /** LSP 服务器配置（按语言） */
   lspServers: Record<string, LspServerConfig>;
+  /** 多模型路由规则 */
+  models: ModelRoute[];
+  /** 向量检索配置 */
+  embeddings: { enabled: boolean; model: string; weight: number };
+  /** UI 配置 */
+  ui: { theme?: string; rich?: boolean };
+  /** 命中的配置文件路径 */
+  configSources: string[];
 }
 
-interface FileConfig {
-  model?: string;
-  baseURL?: string;
-  temperature?: number;
-  maxTokens?: number;
-  maxSteps?: number;
-  autoApprove?: boolean;
-  permissions?: string[] | Record<string, string[]>;
-  context?: Partial<ContextBudget>;
-  mcpServers?: Record<string, McpServerConfig>;
-  lspServers?: Record<string, LspServerConfig>;
-}
-
-function loadFileConfig(workdir: string): FileConfig {
-  for (const name of [".aicoder.json", "aicoder.json"]) {
-    const p = path.join(workdir, name);
-    try {
-      if (fs.existsSync(p)) {
-        return JSON.parse(fs.readFileSync(p, "utf8")) as FileConfig;
-      }
-    } catch {
-      /* 忽略损坏的配置文件 */
-    }
-  }
-  return {};
-}
-
-/** 将 permissions 对象形式 { allow: [...], ask: [...], deny: [...] } 转为规则文本 */
-function normalizePermissions(
-  perms: FileConfig["permissions"]
-): string[] {
-  if (!perms) return [];
-  if (Array.isArray(perms)) return perms;
-  const out: string[] = [];
-  for (const [action, tools] of Object.entries(perms)) {
-    for (const t of tools) out.push(`${action}:${t}`);
-  }
-  return out;
+function loadFileConfig(workdir: string): { file: FileConfig; sources: string[] } {
+  const { config, sources } = loadLayeredConfig(workdir);
+  return { file: config, sources };
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const workdir = path.resolve(process.env.AICODER_WORKDIR ?? process.cwd());
-  const file = loadFileConfig(workdir);
+  const { file, sources } = loadFileConfig(workdir);
 
   const envRules = process.env.AICODER_PERMISSIONS
     ? process.env.AICODER_PERMISSIONS.split(/\n/)
@@ -146,6 +124,26 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     budget,
     mcpServers: file.mcpServers ?? {},
     lspServers: file.lspServers ?? {},
+    models: file.models ?? [],
+    embeddings: {
+      enabled:
+        process.env.AICODER_EMBEDDINGS !== undefined
+          ? bool(process.env.AICODER_EMBEDDINGS, false)
+          : (file.embeddings?.enabled ?? false),
+      model:
+        process.env.AICODER_EMBEDDING_MODEL ??
+        file.embeddings?.model ??
+        "text-embedding-3-small",
+      weight: num(
+        process.env.AICODER_EMBEDDING_WEIGHT,
+        file.embeddings?.weight ?? 0.5
+      ),
+    },
+    ui: {
+      theme: process.env.AICODER_THEME ?? file.ui?.theme,
+      rich: file.ui?.rich,
+    },
+    configSources: sources,
     ...overrides,
   };
   // 派生字段归一化：若覆盖了 permissionRules 但未显式覆盖 rules，则重新解析

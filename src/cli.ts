@@ -22,12 +22,19 @@ function printHelp(): void {
   aicoder                    交互式终端对话
   aicoder --rag              启动时构建代码库索引
   aicoder --prompt="..."     单次提问后退出
+  aicoder --resume           恢复最近会话
+  aicoder --resume=<id>      恢复指定会话
+  aicoder --session=<id>     使用指定会话 id
+  aicoder --no-save          不持久化本次会话
+  aicoder sessions           列出已保存会话
   aicoder web                启动网页版 (http://localhost:8787)
   aicoder rag                仅构建代码索引
 
 交互命令:
   /exit  退出          /reset  清空上下文
-  /rag   重建索引
+  /rag   重建索引      /save   保存会话
+  /sessions 会话列表   /new    新建会话
+  /delete <id> 删除会话
 
 扩展能力（在 .aicoder.json 中配置）:
   mcpServers  MCP 服务器          lspServers  LSP 语言服务器
@@ -55,6 +62,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "sessions" || args[0] === "list") {
+    const { listSessions, sessionsDir } = await import("./session.js");
+    const list = await listSessions();
+    console.log(`${C.dim}会话目录: ${sessionsDir()}${C.reset}`);
+    if (!list.length) {
+      console.log("(暂无保存的会话)");
+      return;
+    }
+    for (const s of list) {
+      const when = new Date(s.updatedAt).toLocaleString();
+      console.log(
+        `${C.cyan}${s.id}${C.reset}  ${C.dim}${when}  ${s.messageCount} 条  ${s.model}${C.reset}\n  ${s.title}`
+      );
+    }
+    return;
+  }
+
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
     return;
@@ -62,6 +86,9 @@ async function main(): Promise<void> {
 
   const wantRag = args.includes("--rag") || args.includes("-r");
   const once = args.find((a) => a.startsWith("--prompt="))?.slice("--prompt=".length);
+  const resumeArg = args.find((a) => a.startsWith("--resume"));
+  const sessionArg = args.find((a) => a.startsWith("--session="))?.slice("--session=".length);
+  const noPersist = args.includes("--no-save");
   const config = loadConfig();
 
   if (!config.apiKey && !config.baseURL.includes("localhost")) {
@@ -85,11 +112,49 @@ async function main(): Promise<void> {
     }
   }
 
+  const { newSessionId, loadSession, listSessions, deleteSession } = await import("./session.js");
+
+  let sessionId: string | undefined;
+  let restored = false;
+  if (sessionArg) {
+    sessionId = sessionArg;
+  } else if (resumeArg !== undefined) {
+    // --resume 或 --resume=<id>
+    const explicit = resumeArg.includes("=") ? resumeArg.split("=")[1] : "";
+    if (explicit) {
+      sessionId = explicit;
+    } else {
+      const list = await listSessions();
+      const candidates = list.filter((s) => s.workdir === config.workdir);
+      const pick = candidates[0] ?? list[0];
+      if (pick) {
+        sessionId = pick.id;
+        console.log(`${C.dim}恢复最近会话: ${pick.id}  ${pick.title}${C.reset}`);
+      } else {
+        console.log(`${C.yellow}未找到可恢复的会话，将新建。${C.reset}`);
+      }
+    }
+  }
+  if (!sessionId && !noPersist) sessionId = newSessionId();
+
   const agent = new Agent({
     config,
     useRag: wantRag,
     onConfirm: confirmPrompt,
+    sessionId,
+    persist: !noPersist,
   });
+
+  if (sessionId && (sessionArg || resumeArg !== undefined)) {
+    const stored = await loadSession(sessionId);
+    if (stored && stored.messages.length) {
+      agent.loadHistory(stored.messages);
+      restored = true;
+      console.log(
+        `${C.dim}已载入 ${stored.messages.length} 条历史（${stored.title}）${C.reset}`
+      );
+    }
+  }
 
   if (wantRag) {
     process.stdout.write(`${C.dim}正在构建代码索引...${C.reset}`);
@@ -97,11 +162,49 @@ async function main(): Promise<void> {
     console.log(`\r${C.dim}代码索引就绪：${n} 个片段${C.reset}   `);
   }
 
-  console.log(`${C.dim}输入内容开始对话。命令: /exit 退出, /reset 清空上下文, /rag 重建索引${C.reset}\n`);
+  if (sessionId) {
+    console.log(`${C.dim}会话: ${sessionId}${restored ? " (已恢复)" : ""}${C.reset}`);
+  }
+  console.log(`${C.dim}输入内容开始对话。命令: /exit 退出, /reset 清空上下文, /rag 重建索引, /save 保存, /sessions 列表${C.reset}\n`);
 
   if (once) {
     await runTurn(agent, once);
     shutdownExtensions();
+    return;
+  }
+
+  const wantTui =
+    args.includes("--tui") ||
+    (config.ui?.rich === true && !args.includes("--no-tui"));
+
+  if (wantTui) {
+    const { runTui } = await import("./tui.js");
+    const handleCommand = async (text: string): Promise<void> => {
+      const [cmd, ...rest] = text.split(" ");
+      if (cmd === "/rag") {
+        const n = await agent.prepareRag();
+        console.log(`${C.dim}索引完成：${n} 个片段${C.reset}`);
+      } else if (cmd === "/sessions") {
+        const list = await listSessions();
+        for (const s of list.slice(0, 15)) {
+          console.log(`${s.id}  ${s.messageCount} 条  ${s.model}  ${s.title}`);
+        }
+      } else if (cmd === "/delete") {
+        const ok = await deleteSession(rest.join(" ").trim());
+        console.log(ok ? "已删除" : "删除失败");
+      } else if (cmd === "/new") {
+        const id = newSessionId();
+        agent.id = id;
+        console.log(`已新建会话 ${id}`);
+      }
+    };
+    runTui(agent, {
+      theme: config.ui?.theme,
+      sessionId: agent.id,
+      model: config.model,
+      workdir: config.workdir,
+      onCommand: handleCommand,
+    });
     return;
   }
 
@@ -127,6 +230,36 @@ async function main(): Promise<void> {
         process.stdout.write(`${C.dim}重建索引...${C.reset}`);
         const n = await agent.prepareRag();
         console.log(`\r${C.dim}索引完成：${n} 个片段${C.reset}   \n`);
+        return prompt();
+      }
+      if (text === "/save") {
+        await agent.save();
+        console.log(`${C.dim}已保存会话 ${agent.id ?? "(无)"}${C.reset}\n`);
+        return prompt();
+      }
+      if (text === "/sessions") {
+        const list = await listSessions();
+        if (!list.length) console.log(`${C.dim}(暂无保存的会话)${C.reset}`);
+        for (const s of list.slice(0, 15)) {
+          const mark = s.id === agent.id ? `${C.green}*${C.reset}` : " ";
+          console.log(
+            `${mark} ${C.cyan}${s.id}${C.reset}  ${C.dim}${s.messageCount} 条  ${s.model}${C.reset}  ${s.title}`
+          );
+        }
+        console.log();
+        return prompt();
+      }
+      if (text.startsWith("/delete ")) {
+        const id = text.slice("/delete ".length).trim();
+        const ok = await deleteSession(id);
+        console.log(`${ok ? C.green + "已删除" : C.red + "删除失败"} ${id}${C.reset}\n`);
+        return prompt();
+      }
+      if (text === "/new") {
+        agent.reset();
+        const id = newSessionId();
+        agent.id = id;
+        console.log(`${C.green}已新建会话 ${id}${C.reset}\n`);
         return prompt();
       }
       await runTurn(agent, text);
