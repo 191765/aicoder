@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AICoder - 开源 AI 编程助手</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="logo">&lt;/&gt;</span>
+        <div>
+          <h1>AICoder</h1>
+          <p>开源 AI 编程助手</p>
+        </div>
+      </div>
+      <div class="side-actions">
+        <button id="newChat" class="btn">＋ 新对话</button>
+        <label class="toggle">
+          <input type="checkbox" id="ragToggle" />
+          <span>代码库检索 (RAG)</span>
+        </label>
+        <label class="toggle danger">
+          <input type="checkbox" id="writeToggle" />
+          <span>允许写操作（改文件/执行命令）</span>
+        </label>
+      </div>
+      <div class="status" id="status">就绪</div>
+      <div class="side-footer">
+        <div id="modelInfo">模型：-</div>
+        <div id="tokenBox" style="display:none">
+          <input id="tokenInput" type="password" placeholder="访问令牌 (可选)" />
+          <button id="saveToken" class="btn small">保存</button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <div id="messages"></div>
+      <form id="composer">
+        <textarea id="input" rows="1" placeholder="描述你的需求，例如：帮我修复这个 bug / 解释这段代码 / 写一个测试"></textarea>
+        <button type="submit" id="send">发送</button>
+      </form>
+      <div class="hint">Enter 发送 · Shift+Enter 换行 · 写操作会自动执行，请谨慎</div>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

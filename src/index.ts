@@ -1,0 +1,11 @@
+export { loadConfig } from "./config.js";
+export type { Config } from "./config.js";
+export { Agent } from "./agent.js";
+export type { AgentEvent, AgentOptions } from "./agent.js";
+export { createProvider, OpenAICompatProvider } from "./provider.js";
+export type { Provider } from "./provider.js";
+export { tools, toolSchemas, findTool } from "./tools.js";
+export type { ToolDef, ToolContext } from "./tools.js";
+export { CodeIndex } from "./rag.js";
+export type { SearchHit, Chunk } from "./rag.js";
+export type { ChatMessage, ToolCall, ToolResult, StreamEvent } from "./types.js";
